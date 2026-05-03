@@ -1,0 +1,11 @@
+--- /tmp/openclaw-lark-orig/package/src/card/reply-dispatcher.js	1985-10-26 16:15:00.000000000 +0800
++++ /home/wzgrx/.openclaw/extensions/openclaw-lark/src/card/reply-dispatcher.js	2026-05-03 21:21:54.578217653 +0800
+@@ -224,7 +224,7 @@
+             }
+             // ---- Static text delivery ----
+             if (text.trim()) {
+-                if ((0, reply_mode_1.shouldUseCard)(text)) {
++                if (feishuCfg?.renderMode === 'card' || (0, reply_mode_1.shouldUseCard)(text)) {
+                     const chunks = core.channel.text.chunkTextWithMode(text, textChunkLimit, chunkMode);
+                     log.info('deliver: sending card chunks', {
+                         count: chunks.length,

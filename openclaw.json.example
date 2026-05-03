@@ -1,0 +1,311 @@
+{
+  /*
+   * openclaw.json.example — Configuration template for OpenClaw
+   *
+   * Copy this file to openclaw.json and replace ALL placeholder values
+   * with your actual credentials and settings.
+   *
+   * Placeholders follow the format: YOUR_*
+   */
+
+  // =========================================================================
+  // Models — LLM provider configuration
+  // =========================================================================
+  "models": {
+    "providers": {
+      "bailian": {
+        "type": "bailian",
+        "apiKey": "YOUR_BAILIAN_API_KEY",
+        "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "models": {
+          "qwen-max": {
+            "model": "qwen-max",
+            "cost": {
+              "input": 0.004,
+              "output": 0.012,
+              "per": 1000,
+              "unit": "tokens"
+            }
+          },
+          "qwen-plus": {
+            "model": "qwen-plus",
+            "cost": {
+              "input": 0.0008,
+              "output": 0.002,
+              "per": 1000,
+              "unit": "tokens"
+            }
+          },
+          "qwen-turbo": {
+            "model": "qwen-turbo",
+            "cost": {
+              "input": 0.0003,
+              "output": 0.0006,
+              "per": 1000,
+              "unit": "tokens"
+            }
+          }
+        }
+      },
+      "deepseek": {
+        "type": "openai",
+        "apiKey": "YOUR_DEEPSEEK_API_KEY",
+        "baseUrl": "https://api.deepseek.com/v1",
+        "models": {
+          "deepseek-chat": {
+            "model": "deepseek-chat",
+            "cost": {
+              "input": 0.00027,
+              "output": 0.0011,
+              "per": 1000,
+              "unit": "tokens"
+            }
+          },
+          "deepseek-reasoner": {
+            "model": "deepseek-reasoner",
+            "cost": {
+              "input": 0.00055,
+              "output": 0.00219,
+              "per": 1000,
+              "unit": "tokens"
+            }
+          }
+        }
+      }
+    },
+    "defaultProvider": "bailian",
+    "defaultModel": "qwen-plus"
+  },
+
+  // =========================================================================
+  // Agent defaults — shared settings for all agents
+  // =========================================================================
+  "agents": {
+    "defaults": {
+      "systemPrompt": "You are a helpful AI assistant.",
+      "temperature": 0.7,
+      "maxTokens": 4096,
+      "topP": 0.9,
+      "frequencyPenalty": 0,
+      "presencePenalty": 0,
+      "tools": [],
+      "toolChoice": "auto"
+    }
+  },
+
+  // =========================================================================
+  // Channels — platform-specific configuration
+  // =========================================================================
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "YOUR_APP_ID",
+      "appSecret": "YOUR_APP_SECRET",
+      "verificationToken": "YOUR_VERIFICATION_TOKEN",
+      "encryptKey": "YOUR_ENCRYPT_KEY",
+
+      // Card footer — all 9 fields enabled for detailed usage display
+      "footer": {
+        "status": true,
+        "elapsed": true,
+        "tokens": true,
+        "cache": true,
+        "context": true,
+        "model": true,
+        "cost": true,
+        "todayTokens": true,
+        "monthTokens": true
+      },
+
+      // Optional card footer customization
+      "footerStyle": {
+        "separator": " · ",
+        "label": true,
+        "showEmpty": false,
+        "compact": false
+      }
+    }
+  },
+
+  // =========================================================================
+  // Plugins — extend agent capabilities
+  // =========================================================================
+  "plugins": {
+    "enabled": [
+      "web-search",
+      "web-scrape",
+      "image-analysis",
+      "code-interpreter",
+      "file-reader",
+      "file-writer",
+      "memory"
+    ],
+    "settings": {
+      "web-search": {
+        "provider": "YOUR_SEARCH_PROVIDER",
+        "apiKey": "YOUR_SEARCH_API_KEY",
+        "maxResults": 5
+      },
+      "web-scrape": {
+        "userAgent": "OpenClaw/1.0",
+        "timeout": 10000
+      },
+      "image-analysis": {
+        "provider": "bailian",
+        "model": "qwen-vl-max"
+      },
+      "code-interpreter": {
+        "sandbox": "docker",
+        "timeout": 30000,
+        "maxOutputSize": 100000
+      },
+      "memory": {
+        "provider": "YOUR_MEMORY_PROVIDER",
+        "connectionString": "YOUR_MEMORY_CONNECTION_STRING"
+      }
+    }
+  },
+
+  // =========================================================================
+  // Session store — conversation persistence
+  // =========================================================================
+  "sessionStore": {
+    "type": "redis",
+    "config": {
+      "host": "YOUR_REDIS_HOST",
+      "port": 6379,
+      "password": "YOUR_REDIS_PASSWORD",
+      "db": 0,
+      "keyPrefix": "openclaw:session:",
+      "ttl": 86400
+    }
+  },
+
+  // =========================================================================
+  // Tools — allowance configuration
+  // =========================================================================
+  "tools": {
+    "alsoAllow": [
+      "feishu.get_bot_info",
+      "feishu.send_message",
+      "feishu.reply_message",
+      "feishu.edit_message",
+      "feishu.delete_message",
+      "feishu.get_message",
+      "feishu.list_messages",
+      "feishu.upload_image",
+      "feishu.download_image",
+      "feishu.get_user_info",
+      "feishu.get_chat_info",
+      "feishu.list_chat_members",
+      "feishu.create_chat",
+      "feishu.add_chat_members",
+      "feishu.remove_chat_members",
+      "feishu.search_message",
+      "feishu.create_document",
+      "feishu.get_document_content",
+      "feishu.create_table",
+      "feishu.insert_table_rows",
+      "feishu.create_event",
+      "feishu.get_event",
+      "feishu.update_event",
+      "feishu.delete_event",
+      "feishu.list_calendars",
+      "feishu.create_calendar",
+      "feishu.get_calendar",
+      "feishu.get_calendar_acl",
+      "feishu.get_meeting",
+      "feishu.create_meeting",
+      "feishu.list_meetings",
+      "feishu.get_calendar_event_attendees",
+      "feishu.create_calendar_event_attendees",
+      "feishu.search_room",
+      "feishu.list_room",
+      "feishu.get_room",
+      "feishu.search_building",
+      "feishu.list_building",
+      "feishu.get_building",
+      "feishu.search_floor",
+      "feishu.list_floor",
+      "feishu.get_floor",
+      "feishu.get_approval_instance",
+      "feishu.create_approval_instance",
+      "feishu.list_approval_instance",
+      "feishu.approve_instance",
+      "feishu.reject_instance",
+      "feishu.transfer_instance",
+      "feishu.cancel_instance",
+      "feishu.get_approval_definition",
+      "feishu.get_approval_form",
+      "feishu.list_approval_definition",
+      "feishu.get_bitable_record",
+      "feishu.list_bitable_records",
+      "feishu.create_bitable_record",
+      "feishu.update_bitable_record",
+      "feishu.delete_bitable_record",
+      "feishu.get_bitable_field",
+      "feishu.list_bitable_fields",
+      "feishu.get_bitable_table",
+      "feishu.list_bitable_tables",
+      "feishu.get_bitable_base",
+      "feishu.list_bitable_bases",
+      "feishu.get_drive_file",
+      "feishu.list_drive_files",
+      "feishu.upload_drive_file",
+      "feishu.download_drive_file",
+      "feishu.create_folder",
+      "feishu.get_folder_children",
+      "feishu.get_drive_file_statistics",
+      "feishu.get_drive_file_comment",
+      "feishu.list_drive_file_comments",
+      "feishu.create_drive_file_comment",
+      "feishu.get_drive_file_subscription",
+      "feishu.create_drive_file_subscription",
+      "feishu.update_drive_file_subscription",
+      "feishu.delete_drive_file_subscription",
+      "feishu.search_drive_file",
+      "feishu.search_wiki",
+      "feishu.get_wiki_node",
+      "feishu.list_wiki_space_node",
+      "feishu.create_wiki_node",
+      "feishu.update_wiki_node",
+      "feishu.move_wiki_node",
+      "feishu.get_wiki_space",
+      "feishu.list_wiki_space",
+      "feishu.get_task",
+      "feishu.create_task",
+      "feishu.update_task",
+      "feishu.delete_task",
+      "feishu.complete_task",
+      "feishu.list_task",
+      "feishu.get_task_comment",
+      "feishu.create_task_comment",
+      "feishu.list_task_comment",
+      "feishu.get_task_custom_field",
+      "feishu.list_task_custom_field",
+      "feishu.get_task_custom_field_option",
+      "feishu.list_task_custom_field_option",
+      "feishu.get_jira_issue",
+      "feishu.create_jira_issue",
+      "feishu.update_jira_issue",
+      "feishu.delete_jira_issue",
+      "feishu.list_jira_issue",
+      "feishu.search_jira_issue",
+      "feishu.get_jira_project",
+      "feishu.list_jira_project",
+      "feishu.get_jira_sprint",
+      "feishu.list_jira_sprint",
+      "feishu.get_jira_board",
+      "feishu.list_jira_board"
+    ]
+  },
+
+  // =========================================================================
+  // Server — HTTP listener
+  // =========================================================================
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0",
+    "logLevel": "info"
+  }
+}

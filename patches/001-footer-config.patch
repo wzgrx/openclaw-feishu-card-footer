@@ -1,0 +1,38 @@
+--- /tmp/openclaw-lark-orig/package/src/core/footer-config.js	1985-10-26 16:15:00.000000000 +0800
++++ /home/wzgrx/.openclaw/extensions/openclaw-lark/src/core/footer-config.js	2026-05-03 21:27:46.181124008 +0800
+@@ -17,16 +17,18 @@
+ /**
+  * The default footer configuration.
+  *
+- * By default all metadata items are hidden — neither status text
+- * ("已完成" / "出错" / "已停止") nor elapsed time are shown.
++ * All metadata items are shown by default (opt-out model).
+  */
+ exports.DEFAULT_FOOTER_CONFIG = {
+-    status: false,
+-    elapsed: false,
+-    tokens: false,
+-    cache: false,
+-    context: false,
+-    model: false,
++    status: true,
++    elapsed: true,
++    tokens: true,
++    cache: true,
++    context: true,
++    model: true,
++    cost: true,
++    todayTokens: true,
++    monthTokens: true,
+ };
+ // ---------------------------------------------------------------------------
+ // Resolver
+@@ -47,5 +49,8 @@
+         cache: cfg.cache ?? exports.DEFAULT_FOOTER_CONFIG.cache,
+         context: cfg.context ?? exports.DEFAULT_FOOTER_CONFIG.context,
+         model: cfg.model ?? exports.DEFAULT_FOOTER_CONFIG.model,
++        cost: cfg.cost ?? exports.DEFAULT_FOOTER_CONFIG.cost,
++        todayTokens: cfg.todayTokens ?? exports.DEFAULT_FOOTER_CONFIG.todayTokens,
++        monthTokens: cfg.monthTokens ?? exports.DEFAULT_FOOTER_CONFIG.monthTokens,
+     };
+ }
