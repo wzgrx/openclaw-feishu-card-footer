@@ -6,7 +6,8 @@
 
 为 **[OpenClaw](https://openclaw.nousresearch.com)** 的飞书（Feishu / Lark）插件 `@larksuite/openclaw-lark` **v2026.4.10+** 提供信息丰富的卡片页脚增强组件。
 
-![Card Footer 预览示意图](https://via.placeholder.com/600x120?text=Card+Footer+Preview)
+![Card Footer 预览示意图](<img width="1577" height="447" alt="image" src="https://github.com/user-attachments/assets/2809fa13-209b-4e0c-8442-05592ba3e5fd" />
+)
 
 ---
 
