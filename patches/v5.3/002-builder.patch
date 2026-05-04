@@ -1,0 +1,209 @@
+--- src/card/builder.js	1985-10-26 16:15:00.000000000 +0800
++++ src/card/builder.js	2026-05-05 09:00:00.000000000 +0800
+@@ -17,11 +17,14 @@
+ exports.formatElapsed = formatElapsed;
+ exports.compactNumber = compactNumber;
+ exports.formatFooterRuntimeSegments = formatFooterRuntimeSegments;
++exports.calcModelCost = calcModelCost;
+ exports.buildCardContent = buildCardContent;
+ exports.buildStreamingThinkingCard = buildStreamingThinkingCard;
+ exports.buildStreamingPreAnswerCard = buildStreamingPreAnswerCard;
+ exports.toCardKit2 = toCardKit2;
+ const markdown_style_1 = require("./markdown-style.js");
+ const tool_use_display_1 = require("./tool-use-display.js");
++const fs = require('fs');
++const path = require('path');
++const os = require('os');
+
+ // ====== [HERMES-FOOTER PATCH] 4-line footer layout ======
+ 
++// ---- Balance cache — reads from ~/.hermes/data/balance-cache.json ----
++let _balanceCache = {};
++let _balanceCacheTime = 0;
++const BALANCE_CACHE_TTL = 60 * 60 * 1000;
++const BALANCE_CACHE_PATH = path.join(os.homedir(), '.hermes', 'data', 'balance-cache.json');
++
++function refreshBalanceCache() {
++    if (_balanceCacheTime && Date.now() - _balanceCacheTime < BALANCE_CACHE_TTL) return;
++    try {
++        if (fs.existsSync(BALANCE_CACHE_PATH)) {
++            const raw = fs.readFileSync(BALANCE_CACHE_PATH, 'utf8');
++            const data = JSON.parse(raw);
++            if (data?.results && Array.isArray(data.results)) {
++                const cache = {};
++                for (const r of data.results) {
++                    if (r.available) {
++                        if (r.platform === 'DeepSeek') cache.deepseek = r.total;
++                        else if (r.platform === '硅基流动') cache.siliconflow = r.total;
++                        else if (r.platform === '阿里百炼') cache.alibaba = r.total;
++                        else if (r.platform === '火山引擎') cache.volcengine = r.total;
++                    }
++                }
++                if (Object.keys(cache).length > 0) {
++                    _balanceCache = cache;
++                    _balanceCacheTime = Date.now();
++                }
++            }
++        }
++    } catch (e) { /* ignore */ }
++}
++
++function getBalanceForModel(modelName) {
++    refreshBalanceCache();
++    if (!_balanceCache || Object.keys(_balanceCache).length === 0) return null;
++    const id = (modelName || '').split('/').pop() || '';
++    if (id.startsWith('deepseek')) {
++        return _balanceCache.deepseek != null ? { platform: 'DeepSeek', value: _balanceCache.deepseek } : null;
++    }
++    if (id.startsWith('qwen')) {
++        return _balanceCache.alibaba != null ? { platform: '阿里百炼', value: _balanceCache.alibaba } : null;
++    }
++    if (id.startsWith('doubao') || id.startsWith('kimi')) {
++        return _balanceCache.volcengine != null ? { platform: '火山引擎', value: _balanceCache.volcengine } : null;
++    }
++    return null;
++}
+
+ // Replace the original formatFooterRuntimeSegments function entirely:
+ function formatFooterRuntimeSegments(params) {
+-    const { footer, metrics, elapsedMs, isError, isAborted } = params;
+-    // original: simple 1-line status only
+-    const zhParts = [];
+-    const enParts = [];
+-    if (footer?.status) { ... }
+-    if (footer?.elapsed && elapsedMs != null) { ... }
+-    if (footer?.model && metrics?.model) { ... }
+-    return { zhParts, enParts };
++    const { footer, metrics, elapsedMs, isError, isAborted, showGlobalTokens,
++            inputPrice, outputPrice, cacheReadPrice, firstTokenLatencyMs } = params;
++    const line1Zh = []; const line1En = [];
++    const line2Zh = []; const line2En = [];
++    const line3Zh = []; const line3En = [];
++    const line4Zh = []; const line4En = [];
++
++    // ---- Line 1: status · elapsed · model ----
++    if (footer?.status) {
++        if (isError) { line1Zh.push('❌ 出错'); line1En.push('❌ Error'); }
++        else if (isAborted) { line1Zh.push('⏹️ 已停止'); line1En.push('⏹️ Stopped'); }
++        else { line1Zh.push('✅ 已完成'); line1En.push('✅ Completed'); }
++    }
++    if (footer?.elapsed && elapsedMs != null) {
++        const d = formatElapsed(elapsedMs);
++        line1Zh.push(`⏳️ ${d}`); line1En.push(`⏳️ ${d}`);
++    }
++    if (footer?.model && metrics?.model) {
++        const m = metrics.model.trim();
++        if (m) { line1Zh.push(m); line1En.push(m); }
++    }
++
++    // ---- Line 2: 💸 cost breakdown + 🚀 first token ----
++    if (footer?.cost && metrics) {
++        const inT = typeof metrics.inputTokens === 'number' && metrics.inputTokens > 0 ? metrics.inputTokens : 0;
++        const outT = typeof metrics.outputTokens === 'number' && metrics.outputTokens > 0 ? metrics.outputTokens : 0;
++        const cacheR = typeof metrics.cacheRead === 'number' && metrics.cacheRead > 0 ? metrics.cacheRead : 0;
++        const inP = typeof inputPrice === 'number' && inputPrice > 0 ? inputPrice : 0;
++        const outP = typeof outputPrice === 'number' && outputPrice > 0 ? outputPrice : 0;
++        const cacheP = typeof cacheReadPrice === 'number' && cacheReadPrice > 0 ? cacheReadPrice : 0;
++        const inCost = (inT / 1_000_000) * inP;
++        const outCost = (outT / 1_000_000) * outP;
++        const cacheCost = (cacheR / 1_000_000) * cacheP;
++        const totalCost = inCost + outCost + cacheCost;
++        if (totalCost > 0) {
++            const fmtVal = (v) => v < 0.001 ? '¥0' : (v < 0.01 ? `¥${v.toFixed(4)}` : `¥${v.toFixed(3)}`);
++            const costStr = totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(3);
++            line2Zh.push(`💸 ¥${costStr} = 入${fmtVal(inCost)} + 出${fmtVal(outCost)} + 缓存${fmtVal(cacheCost)}`);
++            line2En.push(`💸 ¥${costStr} = in${fmtVal(inCost)} + out${fmtVal(outCost)} + cache${fmtVal(cacheCost)}`);
++        }
++    }
++    if (footer?.elapsed && firstTokenLatencyMs != null) {
++        const sec = (firstTokenLatencyMs / 1000).toFixed(2);
++        line2Zh.push(`🚀首token ${sec}s`); line2En.push(`🚀 First token ${sec}s`);
++    }
++
++    // ---- Line 3: ↑↓ tokens · 缓存 · 📑 context · 🪙 daily/month · time ----
++    if (metrics) {
++        const inTk = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
++        const outTk = typeof metrics.outputTokens === 'number' ? Math.max(0, metrics.outputTokens) : undefined;
++        if (inTk != null && outTk != null) {
++            line3Zh.push(`↑ ${compactNumber(inTk)} ↓ ${compactNumber(outTk)}`);
++            line3En.push(`↑ ${compactNumber(inTk)} ↓ ${compactNumber(outTk)}`);
++        }
++    }
++    if (footer?.cache && metrics) {
++        const read = typeof metrics.cacheRead === 'number' ? Math.max(0, metrics.cacheRead) : undefined;
++        const write = typeof metrics.cacheWrite === 'number' ? Math.max(0, metrics.cacheWrite) : undefined;
++        const inputVal = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
++        if (read != null && write != null && inputVal != null) {
++            const total = read + write + inputVal;
++            const hit = total > 0 ? Math.round((read / total) * 100) : 0;
++            line3Zh.push(`缓存 ${compactNumber(read)}/${compactNumber(write)} (${hit}%)`);
++            line3En.push(`Cache ${compactNumber(read)}/${compactNumber(write)} (${hit}%)`);
++        }
++    }
++    if (footer?.context && metrics) {
++        let total = typeof metrics.totalTokens === 'number' && metrics.totalTokens > 0
++            ? metrics.totalTokens
++            : (typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : 0);
++        total = Math.max(0, total);
++        const ctx = typeof metrics.contextTokens === 'number' ? Math.max(0, metrics.contextTokens) : undefined;
++        if (ctx != null) {
++            const pct = ctx > 0 ? Math.round((total / ctx) * 100) : 0;
++            line3Zh.push(`📑 ${compactNumber(total)}/${compactNumber(ctx)} (${pct}%)`);
++            line3En.push(`📑 ${compactNumber(total)}/${compactNumber(ctx)} (${pct}%)`);
++        }
++    }
++    if (footer?.todayTokens || footer?.monthTokens) {
++        let tDay = 0, tMonth = 0;
++        try {
++            const statsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
++            if (fs.existsSync(statsPath)) {
++                const raw = fs.readFileSync(statsPath, 'utf8');
++                const data = JSON.parse(raw);
++                const todayKey = (() => {
++                    const d = new Date(Date.now() + 8 * 3600 * 1000);
++                    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
++                })();
++                tDay = data.dateKey === todayKey && typeof data.todayTokens === 'number' ? data.todayTokens : 0;
++                tMonth = data.dateKey && data.dateKey.substring(0,7) === todayKey.substring(0,7) && typeof data.monthTokens === 'number' ? data.monthTokens : 0;
++            }
++        } catch (e) { /* ignore */ }
++        const now = new Date();
++        const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
++        line3Zh.push(`🪙 ${compactNumber(tDay)}丨${compactNumber(tMonth)} · ${ts}`);
++        line3En.push(`🪙 ${compactNumber(tDay)}丨${compactNumber(tMonth)} · ${ts}`);
++    }
++
++    // ---- Line 4: 💰 balance ----
++    try {
++        const bal = getBalanceForModel(metrics?.model);
++        if (bal && footer?.cost) {
++            const val = bal.value != null ? `¥${bal.value.toFixed(2)}` : 'N/A';
++            line4Zh.push(`💰 ${bal.platform} ${val}`);
++            line4En.push(`💰 ${bal.platform} ${val}`);
++        }
++    } catch (e) { /* ignore */ }
++
++    return { line1Zh, line1En, line2Zh, line2En, line3Zh, line3En, line4Zh, line4En };
+ }
+
+ // ---- buildCompleteCard ----
+ function buildCompleteCard(params) {
+-    const { text, elapsedMs, ..., footer, footerMetrics } = params;
+-    const fp = formatFooterRuntimeSegments({ footer, metrics: footerMetrics, elapsedMs, isError, isAborted });
+-    const footerZhLines = []; const footerEnLines = [];
+-    if (fp.zhParts.length) { footerZhLines.push(fp.zhParts.join(' · ')); ... }
++    const { text, elapsedMs, isError, ..., footer, footerMetrics,
++            showGlobalTokens, inputPrice, outputPrice, cacheReadPrice, firstTokenLatencyMs } = params;
++    const fp = formatFooterRuntimeSegments({
++        footer, metrics: footerMetrics, elapsedMs, isError, isAborted,
++        showGlobalTokens, inputPrice, outputPrice, cacheReadPrice, firstTokenLatencyMs
++    });
++    const footerZhLines = [];
++    const footerEnLines = [];
++    // 4 lines instead of 1
++    for (const key of ['line1', 'line2', 'line3', 'line4']) {
++        const zh = fp[key + 'Zh'], en = fp[key + 'En'];
++        if (zh.length > 0) { footerZhLines.push(zh.join(' · ')); footerEnLines.push(en.join(' · ')); }
++    }
+     // remaining logic unchanged
+ }

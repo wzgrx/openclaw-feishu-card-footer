@@ -1,35 +1,25 @@
 {
+  "_comment": "OpenClaw 配置模板 — 替换 YOUR_* 占位符后使用",
+
   "models": {
     "mode": "merge",
     "pricing": { "enabled": false },
     "providers": {
       "bailian": {
         "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
-        "apiKey": "YOUR_BAILIAN_CODING_API_KEY",
-        "api": "openai-completions",
-        "models": [{
-          "id": "qwen3.6-plus",
-          "name": "qwen3.6-plus (Coding Plan)",
-          "reasoning": true,
-          "input": ["image", "text", "video"],
-          "cost": { "input": 8, "output": 48, "cacheRead": 0.8 },
-          "contextWindow": 1000000, "maxTokens": 65536,
-          "compat": { "thinkingFormat": "openai" }
-        }]
-      },
-      "dashscope": {
-        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "apiKey": "YOUR_DASHSCOPE_API_KEY",
+        "apiKey": "YOUR_BAILIAN_API_KEY",
         "api": "openai-completions",
         "models": [
-          { "id": "qwen3.6-plus",     "name": "Qwen3.6 Plus",      "reasoning": true,  "input": ["image","text","video"], "cost": {"input":8,"output":48,"cacheRead":0.8},   "contextWindow":1000000, "maxTokens":65536, "compat":{"thinkingFormat":"openai"} },
-          { "id": "qwen3.6-flash",    "name": "Qwen3.6 Flash",     "reasoning": true,  "input": ["image","text","video"], "cost": {"input":4.8,"output":28.8,"cacheRead":0.48},"contextWindow":1000000, "maxTokens":65536 },
-          { "id": "qwen3.5-235b-a17b","name": "Qwen3.5 235B",      "reasoning": true,  "input": ["text"], "cost": {"input":28,"output":128,"cacheRead":2.8},    "contextWindow":32000, "maxTokens":8192 },
-          { "id": "qwen3.5-72b",      "name": "Qwen3.5 72B",       "reasoning": false, "input": ["text"], "cost": {"input":12,"output":36,"cacheRead":1.2},     "contextWindow":32000, "maxTokens":8192 },
-          { "id": "qwen3.5-32b",      "name": "Qwen3.5 32B",       "reasoning": false, "input": ["text"], "cost": {"input":5,"output":15,"cacheRead":0.5},      "contextWindow":32000, "maxTokens":8192 },
-          { "id": "qwen3.5-8b",       "name": "Qwen3.5 8B",        "reasoning": false, "input": ["text"], "cost": {"input":1,"output":3,"cacheRead":0.1},       "contextWindow":32000, "maxTokens":8192 },
-          { "id": "qwq-32b-preview",  "name": "QWQ 32B Preview",   "reasoning": true,  "input": ["text"], "cost": {"input":5,"output":20,"cacheRead":0.5},      "contextWindow":32000, "maxTokens":4096 },
-          { "id": "qwen3.5-397b-a17b","name": "Qwen3.5 397B",      "reasoning": true,  "input": ["text"], "cost": {"input":48,"output":192,"cacheRead":9.6},    "contextWindow":32000, "maxTokens":8192 }
+          {
+            "id": "qwen3.6-plus",
+            "reasoning": true,
+            "input": ["image", "text", "video"],
+            "cost": { "input": 8, "output": 48, "cacheRead": 0.8 },
+            "contextWindow": 1000000,
+            "maxTokens": 65536,
+            "compat": { "thinkingFormat": "openai" },
+            "name": "Bailian qwen3.6-plus"
+          }
         ]
       },
       "deepseek": {
@@ -37,98 +27,83 @@
         "apiKey": "YOUR_DEEPSEEK_API_KEY",
         "api": "openai-completions",
         "models": [
-          { "id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "reasoning": true, "input": ["text"], "cost": {"input":1,"output":2,"cacheRead":0.02},   "contextWindow":1000000, "maxTokens":384000, "compat":{"supportsReasoningEffort":true} },
-          { "id": "deepseek-v4-pro",   "name": "DeepSeek V4 Pro",   "reasoning": true, "input": ["text"], "cost": {"input":3,"output":6,"cacheRead":0.025},  "contextWindow":1000000, "maxTokens":384000, "compat":{"supportsReasoningEffort":true} }
-        ]
-      },
-      "siliconflow": {
-        "baseUrl": "https://api.siliconflow.cn/v1",
-        "apiKey": "YOUR_SILICONFLOW_API_KEY",
-        "api": "openai-completions",
-        "models": [
-          { "id": "DeepSeek-V4-Flash",       "name": "SF DeepSeek V4 Flash", "reasoning": true,  "input": ["text"], "cost": {"input":1.6,"output":3.2,"cacheRead":0.16}, "contextWindow":65536, "maxTokens":8192 },
-          { "id": "DeepSeek-V4-Pro",         "name": "SF DeepSeek V4 Pro",   "reasoning": true,  "input": ["text"], "cost": {"input":4.8,"output":9.6,"cacheRead":0.48}, "contextWindow":65536, "maxTokens":8192 },
-          { "id": "deepseek-ai/DeepSeek-R1", "name": "SF DeepSeek R1",      "reasoning": true,  "input": ["text"], "cost": {"input":4.0,"output":16.0,"cacheRead":0.4}, "contextWindow":65536, "maxTokens":8192 },
-          { "id": "Pro/moonshotai/Kimi-K2.6", "name": "SF Kimi K2.6",       "reasoning": false, "input": ["text"], "cost": {"input":8,"output":24,"cacheRead":0.8},     "contextWindow":131072, "maxTokens":16384 },
-          { "id": "moonshotai/Kimi-K2-Thinking", "name": "SF Kimi K2 Think","reasoning": true,  "input": ["text"], "cost": {"input":4,"output":16,"cacheRead":0.4},      "contextWindow":131072, "maxTokens":16384 },
-          { "id": "Qwen/Qwen2.5-72B-Instruct", "name": "SF Qwen2.5 72B",    "reasoning": false, "input": ["text"], "cost": {"input":12,"output":36,"cacheRead":1.2},    "contextWindow":131072, "maxTokens":16384 },
-          { "id": "Qwen/Qwen2.5-32B-Instruct", "name": "SF Qwen2.5 32B",    "reasoning": false, "input": ["text"], "cost": {"input":5,"output":15,"cacheRead":0.5},     "contextWindow":131072, "maxTokens":16384 },
-          { "id": "Pro/zai-org/GLM-5.1",       "name": "SF GLM 5.1",        "reasoning": false, "input": ["text"], "cost": {"input":5,"output":15,"cacheRead":0.5},     "contextWindow":131072, "maxTokens":16384 },
-          { "id": "MiniMaxAI/MiniMax-M2.5",    "name": "SF MiniMax M2.5",   "reasoning": false, "input": ["text"], "cost": {"input":8,"output":24,"cacheRead":0.8},     "contextWindow":131072, "maxTokens":16384 }
-        ]
-      },
-      "volcengine": {
-        "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
-        "apiKey": "YOUR_VOLCENGINE_API_KEY",
-        "api": "openai-completions",
-        "models": [
-          { "id": "doubao-1-5-pro-32k-250115",    "name": "豆包 1.5 Pro 32K",    "reasoning": false, "input": ["text"], "cost": {"input":5,"output":15,"cacheRead":0.5},   "contextWindow":131072, "maxTokens":16384 },
-          { "id": "doubao-1-5-lite-32k-250115",   "name": "豆包 1.5 Lite 32K",   "reasoning": false, "input": ["text"], "cost": {"input":1,"output":2,"cacheRead":0.1},    "contextWindow":32768, "maxTokens":8192 },
-          { "id": "doubao-1-5-vision-pro-32k-250115", "name": "豆包 1.5 Vision","reasoning": false, "input": ["image","text"], "cost": {"input":5,"output":15,"cacheRead":0.5}, "contextWindow":32768, "maxTokens":4096 },
-          { "id": "doubao-seed-2-0-pro-250408",   "name": "豆包 Seed 2.0 Pro",  "reasoning": true,  "input": ["text"], "cost": {"input":10,"output":30,"cacheRead":1.0},  "contextWindow":262144, "maxTokens":131072 },
-          { "id": "doubao-seed-2-0-lite-250408",  "name": "豆包 Seed 2.0 Lite", "reasoning": false, "input": ["text"], "cost": {"input":2,"output":6,"cacheRead":0.2},    "contextWindow":262144, "maxTokens":131072 },
-          { "id": "doubao-seed-2-0-mini-241218",  "name": "豆包 Seed 2.0 Mini", "reasoning": false, "input": ["text"], "cost": {"input":1,"output":2,"cacheRead":0.1},    "contextWindow":262144, "maxTokens":131072 },
-          { "id": "doubao-seed-1-6-250615",       "name": "豆包 Seed 1.6",      "reasoning": false, "input": ["text"], "cost": {"input":8,"output":24,"cacheRead":0.8},   "contextWindow":262144, "maxTokens":65536 },
-          { "id": "doubao-seed-1-6-flash-250615", "name": "豆包 Seed 1.6 Flash","reasoning": false, "input": ["text"], "cost": {"input":3,"output":6,"cacheRead":0.3},    "contextWindow":262144, "maxTokens":65536 }
+          {
+            "id": "deepseek-v4-flash",
+            "reasoning": true,
+            "input": ["text"],
+            "cost": { "input": 1, "output": 2, "cacheRead": 0.02 },
+            "contextWindow": 1000000,
+            "maxTokens": 384000,
+            "compat": { "supportsReasoningEffort": true },
+            "name": "DeepSeek deepseek-v4-flash"
+          }
         ]
       }
     }
   },
+
   "agents": {
     "defaults": {
-      "model": {
-        "primary": "deepseek/deepseek-v4-flash",
-        "fallbacks": [
-          "deepseek/deepseek-v4-pro",
-          "bailian/qwen3.6-plus",
-          "dashscope/qwen3.6-plus",
-          "siliconflow/deepseek-ai/DeepSeek-V4-Flash",
-          "siliconflow/Pro/moonshotai/Kimi-K2.6",
-          "volcengine/doubao-seed-2-0-pro-250408"
-        ]
-      },
-      "models": {
-        "deepseek/deepseek-v4-flash":                 { "alias": "DeepSeek Flash" },
-        "deepseek/deepseek-v4-pro":                   { "alias": "DeepSeek Pro" },
-        "bailian/qwen3.6-plus":                       { "alias": "Qwen Coding" },
-        "dashscope/qwen3.6-plus":                     { "alias": "阿里 Qwen+ Plus" },
-        "dashscope/qwen3.6-flash":                    { "alias": "阿里 Qwen+ Flash" },
-        "siliconflow/deepseek-ai/DeepSeek-V4-Flash":  { "alias": "SF DeepSeek Flash" },
-        "siliconflow/Pro/moonshotai/Kimi-K2.6":       { "alias": "SF Kimi K2.6" },
-        "siliconflow/moonshotai/Kimi-K2-Thinking":    { "alias": "SF Kimi K2 Think" },
-        "volcengine/doubao-seed-2-0-pro-250408":      { "alias": "豆包 Seed 2.0 Pro" },
-        "volcengine/doubao-1-5-pro-32k-250115":       { "alias": "豆包 1.5 Pro" }
+      "model": "deepseek/deepseek-v4-flash",
+      "systemPromptOverride": "你是龙虾机器人，一个智能助手。用中文回复。"
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "model": "deepseek/deepseek-v4-flash",
+        "systemPromptOverride": "你是龙虾机器人，一个智能助手。用中文回复。"
       }
-    }
+    ]
   },
+
   "channels": {
     "feishu": {
       "appId": "YOUR_FEISHU_APP_ID",
       "appSecret": "YOUR_FEISHU_APP_SECRET",
       "connectionMode": "websocket",
       "enabled": true,
+      "groups": { "*": { "enabled": true } },
       "groupPolicy": "open",
       "requireMention": false,
       "dmPolicy": "open",
-      "streaming": true,
-      "blockStreaming": true,
-      "replyMode": { "group": "streaming", "default": "auto" },
       "renderMode": "card",
-      "messages": { "showFooter": true },
-      "footer": {
-        "status": true, "elapsed": true, "tokens": true,
-        "cache": true, "context": true, "model": true,
-        "cost": true, "todayTokens": true, "monthTokens": true
+      "streaming": true,
+      "replyMode": {
+        "default": "auto",
+        "direct": "streaming",
+        "group": "streaming"
       },
-      "groups": { "*": { "enabled": true } }
+      "footer": {
+        "status": true,
+        "elapsed": true,
+        "tokens": true,
+        "cache": true,
+        "context": true,
+        "model": true
+      }
     }
   },
-  "messages": {
-    "visibleReplies": "automatic",
-    "groupChat": { "visibleReplies": "automatic" },
-    "footer": {
-      "enabled": true, "showModel": true,
-      "showUsage": true, "showLatency": true
+
+  "plugins": {
+    "entries": {
+      "openclaw-lark": { "enabled": true }
+    },
+    "allow": ["openclaw-lark"]
+  },
+
+  "tools": {
+    "profile": "full",
+    "sessions": { "visibility": "all" }
+  },
+
+  "commands": { "native": "auto" },
+
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "YOUR_GATEWAY_TOKEN"
     }
   }
 }
