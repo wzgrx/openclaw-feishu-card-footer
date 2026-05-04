@@ -27,6 +27,138 @@ const tool_use_display_1 = require("./tool-use-display.js");
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const https = require('https');
+// ---------------------------------------------------------------------------
+// Real-time pricing cache (DeepSeek official)
+// ---------------------------------------------------------------------------
+let _pricingCache = null;
+let _pricingCacheTime = 0;
+const PRICING_CACHE_TTL = 6 * 60 * 60 * 1000;
+
+function parsePricingFromHTML(html) {
+    const m = html.match(/价格<\/td>.*?<\/table>/s);
+    if (!m) return null;
+    const cells = [...m[0].matchAll(/<td[^>]*>(.*?)<\/td>/gs)];
+    const prices = {};
+    for (let i = 0; i + 2 < cells.length; i += 3) {
+        const label = cells[i][1].replace(/<[^>]+>/g, '').trim();
+        const flashRaw = cells[i + 1][1].replace(/<del>.*?<\/del>/gs, '').trim();
+        const proRaw = cells[i + 2][1].replace(/<del>.*?<\/del>/gs, '').trim();
+        const f = flashRaw.match(/([\d.]+)/);
+        const p = proRaw.match(/([\d.]+)/);
+        if (!f || !p) continue;
+        const fv = parseFloat(f[1]), pv = parseFloat(p[1]);
+        if (label.includes('缓存命中')) { prices.flash_cacheRead = fv; prices.pro_cacheRead = pv; }
+        else if (label.includes('缓存未命中')) { prices.flash_input = fv; prices.pro_input = pv; }
+        else if (label.includes('输出')) { prices.flash_output = fv; prices.pro_output = pv; }
+    }
+    return Object.keys(prices).length > 3 ? prices : null;
+}
+
+function fetchDeepSeekPricing() {
+    return new Promise((resolve, reject) => {
+        https.get('https://api-docs.deepseek.com/zh-cn/quick_start/pricing', (res) => {
+            let html = '';
+            res.on('data', d => html += d);
+            res.on('end', () => {
+                try {
+                    const prices = parsePricingFromHTML(html);
+                    if (prices) resolve(prices);
+                    else reject(new Error('Parse failed'));
+                } catch (e) { reject(e); }
+            });
+        }).on('error', reject);
+    });
+}
+function refreshPricingCache() {
+    if (_pricingCache && Date.now() - _pricingCacheTime < PRICING_CACHE_TTL) return;
+    fetchDeepSeekPricing().then(prices => {
+        _pricingCache = prices;
+        _pricingCacheTime = Date.now();
+    }).catch(() => {});
+    refreshBalanceCache();
+}
+exports.refreshPricingCache = refreshPricingCache;
+function resolveLivePrice(modelName, priceType, fallback) {
+    if (!_pricingCache) return fallback;
+    const id = (modelName || '').split('/').pop() || '';
+    const prefix = id === 'deepseek-v4-pro' ? 'pro' : 'flash';
+    const key = prefix + '_' + priceType;
+    return _pricingCache[key] != null ? _pricingCache[key] : fallback;
+}
+// ---------------------------------------------------------------------------
+// Balance cache — reads from ~/.hermes/data/balance-cache.json (Python script)
+// Also acts as fallback HTTP fetcher for simply key-based APIs (DeepSeek/硅基).
+// ---------------------------------------------------------------------------
+let _balanceCache = {};
+let _balanceCacheTime = 0;
+const BALANCE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const BALANCE_CACHE_PATH = path.join(os.homedir(), '.hermes', 'data', 'balance-cache.json');
+
+function readBalanceCacheFile() {
+    try {
+        if (fs.existsSync(BALANCE_CACHE_PATH)) {
+            const raw = fs.readFileSync(BALANCE_CACHE_PATH, 'utf8');
+            const data = JSON.parse(raw);
+            if (data?.results && Array.isArray(data.results)) {
+                const cache = {};
+                for (const r of data.results) {
+                    if (r.available) {
+                        if (r.platform === 'DeepSeek') cache.deepseek = r.total;
+                        else if (r.platform === '硅基流动') cache.siliconflow = r.total;
+                        else if (r.platform === '阿里百炼') cache.alibaba = r.total;
+                        else if (r.platform === '火山引擎') cache.volcengine = r.total;
+                    }
+                }
+                if (Object.keys(cache).length > 0) {
+                    _balanceCache = cache;
+                    _balanceCacheTime = Date.now();
+                }
+            }
+        }
+    } catch (_) { /* ignore read errors */ }
+}
+function refreshBalanceCache() {
+    if (_balanceCacheTime && Date.now() - _balanceCacheTime < BALANCE_CACHE_TTL) return;
+    // Try cache file first
+    readBalanceCacheFile();
+    if (_balanceCacheTime && Date.now() - _balanceCacheTime < BALANCE_CACHE_TTL) return;
+    // Fallback: HTTP for platforms with simple Bearer auth
+    const https = require('https');
+    function fetchJSON(url, apiKey) {
+        return new Promise((resolve, reject) => {
+            https.get(url, { headers: { 'Authorization': `Bearer ${apiKey}` } }, (res) => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+            }).on('error', reject);
+        });
+    }
+    Promise.all([
+        // REPLACE THE BELOW API KEYS with your own (these are HTTP fallbacks when cache file is unavailable):
+        fetchJSON('https://api.deepseek.com/user/balance', '<YOUR_DEEPSEEK_API_KEY>')
+            .then(r => { if (r?.is_available && r?.balance_infos?.[0]) _balanceCache.deepseek = parseFloat(r.balance_infos[0].total_balance); })
+            .catch(() => {}),
+        fetchJSON('https://api.siliconflow.cn/v1/user/info', '<YOUR_SILICONFLOW_API_KEY>')
+            .then(r => { if (r?.status && r?.data) _balanceCache.siliconflow = parseFloat(r.data.totalBalance); })
+            .catch(() => {}),
+    ]).then(() => { if (Object.keys(_balanceCache).length > 0) _balanceCacheTime = Date.now(); }).catch(() => {});
+}
+function getBalanceForModel(modelName) {
+    refreshBalanceCache();
+    if (!_balanceCache || Object.keys(_balanceCache).length === 0) return null;
+    const id = (modelName || '').split('/').pop() || '';
+    if (id.startsWith('deepseek')) {
+        return _balanceCache.deepseek != null ? { platform: 'DeepSeek', value: _balanceCache.deepseek } : null;
+    }
+    if (id.startsWith('qwen')) {
+        return _balanceCache.alibaba != null ? { platform: '阿里百炼', value: _balanceCache.alibaba } : null;
+    }
+    if (id.startsWith('doubao') || id.startsWith('kimi')) {
+        return _balanceCache.volcengine != null ? { platform: '火山引擎', value: _balanceCache.volcengine } : null;
+    }
+    return null;
+}
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -205,42 +337,70 @@ function getShanghaiMonthKey() {
 }
 function formatFooterRuntimeSegments(params) {
     const { footer, metrics, elapsedMs, isError, isAborted, showGlobalTokens, inputPrice, outputPrice, cacheReadPrice, firstTokenLatencyMs } = params;
-    const primaryZh = [];
-    const primaryEn = [];
-    const detailZh = [];
-    const detailEn = [];
-    const contextZh = [];
-    const contextEn = [];
-    const dailyZh = [];
-    const dailyEn = [];
-    // --- Primary line: status, elapsed, model ---
+    const line1Zh = [];
+    const line1En = [];
+    const line2Zh = [];
+    const line2En = [];
+    const line3Zh = [];
+    const line3En = [];
+    const line4Zh = [];
+    const line4En = [];
+    // --- Line 1: status, elapsed, model ---
     if (footer?.status) {
         if (isError) {
-            primaryZh.push('❌ 出错');
-            primaryEn.push('❌ Error');
+            line1Zh.push('❌ 出错');
+            line1En.push('❌ Error');
         }
         else if (isAborted) {
-            primaryZh.push('⏹️ 已停止');
-            primaryEn.push('⏹️ Stopped');
+            line1Zh.push('⏹️ 已停止');
+            line1En.push('⏹️ Stopped');
         }
         else {
-            primaryZh.push('✅ 已完成');
-            primaryEn.push('✅ Completed');
+            line1Zh.push('✅ 已完成');
+            line1En.push('✅ Completed');
         }
     }
     if (footer?.elapsed && elapsedMs != null) {
         const d = formatElapsed(elapsedMs);
-        primaryZh.push(`⏳️ ${d}`);
-        primaryEn.push(`⏳️ ${d}`);
+        line1Zh.push(`⏳️ ${d}`);
+        line1En.push(`⏳️ ${d}`);
     }
     if (footer?.model && metrics?.model) {
         const model = metrics.model.trim();
         if (model) {
-            primaryZh.push(model);
-            primaryEn.push(model);
+            line1Zh.push(model);
+            line1En.push(model);
         }
     }
-    // --- Detail line 1: tokens, cache, cost ---
+    // --- Line 2: cost breakdown (Scheme D) + firstToken ---
+    if (footer?.cost && metrics) {
+        const modelName = metrics?.model || '';
+        const liveInPrice = resolveLivePrice(modelName, 'input', inputPrice);
+        const liveOutPrice = resolveLivePrice(modelName, 'output', outputPrice);
+        const liveCachePrice = resolveLivePrice(modelName, 'cacheRead', cacheReadPrice);
+        const inT = typeof metrics.inputTokens === 'number' && metrics.inputTokens > 0 ? metrics.inputTokens : 0;
+        const outT = typeof metrics.outputTokens === 'number' && metrics.outputTokens > 0 ? metrics.outputTokens : 0;
+        const cacheR = typeof metrics.cacheRead === 'number' && metrics.cacheRead > 0 ? metrics.cacheRead : 0;
+        const inP = typeof liveInPrice === 'number' && liveInPrice > 0 ? liveInPrice : 0;
+        const outP = typeof liveOutPrice === 'number' && liveOutPrice > 0 ? liveOutPrice : 0;
+        const cacheP = typeof liveCachePrice === 'number' && liveCachePrice > 0 ? liveCachePrice : 0;
+        const inCost = (inT / 1_000_000) * inP;
+        const outCost = (outT / 1_000_000) * outP;
+        const cacheCost = (cacheR / 1_000_000) * cacheP;
+        const totalCost = inCost + outCost + cacheCost;
+        if (totalCost > 0) {
+            const fmt = (v) => v < 0.001 ? '¥0' : (v < 0.01 ? `¥${v.toFixed(4)}` : `¥${v.toFixed(3)}`);
+            const costStr = totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(3);
+            line2Zh.push(`💸 ¥${costStr} = 入${fmt(inCost)} + 出${fmt(outCost)} + 缓存${fmt(cacheCost)}`);
+            line2En.push(`💸 ¥${costStr} = in${fmt(inCost)} + out${fmt(outCost)} + cache${fmt(cacheCost)}`);
+        }
+    }
+    if (footer?.elapsed && firstTokenLatencyMs != null) {
+        const sec = (firstTokenLatencyMs / 1000).toFixed(2);
+        line2Zh.push(`🚀首token ${sec}s`);
+        line2En.push(`🚀 First token ${sec}s`);
+    }
+    // --- Line 3: tokens, context, daily tokens ---
     const showTokens = showGlobalTokens !== false;
     if (showTokens && metrics) {
         const inTokens = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
@@ -248,8 +408,8 @@ function formatFooterRuntimeSegments(params) {
         if (inTokens != null && outTokens != null) {
             const inLabel = compactNumber(inTokens);
             const outLabel = compactNumber(outTokens);
-            detailZh.push(`↑ ${inLabel} ↓ ${outLabel}`);
-            detailEn.push(`↑ ${inLabel} ↓ ${outLabel}`);
+            line3Zh.push(`↑ ${inLabel} ↓ ${outLabel}`);
+            line3En.push(`↑ ${inLabel} ↓ ${outLabel}`);
         }
     }
     if (footer?.cache && metrics) {
@@ -261,24 +421,10 @@ function formatFooterRuntimeSegments(params) {
             const hit = total > 0 ? Math.round((read / total) * 100) : 0;
             const left = compactNumber(read);
             const right = compactNumber(write);
-            detailZh.push(`缓存 ${left}/${right} (${hit}%)`);
-            detailEn.push(`Cache ${left}/${right} (${hit}%)`);
+            line3Zh.push(`缓存 ${left}/${right} (${hit}%)`);
+            line3En.push(`Cache ${left}/${right} (${hit}%)`);
         }
     }
-    if (footer?.cost && metrics) {
-        const cost = calcModelCost(metrics, inputPrice, outputPrice, cacheReadPrice);
-        if (cost > 0) {
-            const costStr = cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2);
-            detailZh.push(`💸 $${costStr}`);
-            detailEn.push(`💸 $${costStr}`);
-        }
-    }
-    if (footer?.elapsed && firstTokenLatencyMs != null) {
-        const sec = (firstTokenLatencyMs / 1000).toFixed(2);
-        detailZh.push(`🚀首token ${sec}s`);
-        detailEn.push(`🚀 First token ${sec}s`);
-    }
-    // --- Detail line 2 (separate line): context window ---
     if (footer?.context && metrics) {
         let total;
         if (typeof metrics.totalTokens === 'number' && metrics.totalTokens > 0) {
@@ -297,11 +443,10 @@ function formatFooterRuntimeSegments(params) {
             const ctxLabel = compactNumber(ctx);
             const pct = ctx > 0 ? Math.round((total / ctx) * 100) : 0;
             const pctLabel = `${pct}%`;
-            contextZh.push(`📑 ${totalLabel}/${ctxLabel} (${pctLabel})`);
-            contextEn.push(`📑 ${totalLabel}/${ctxLabel} (${pctLabel})`);
+            line3Zh.push(`📑 ${totalLabel}/${ctxLabel} (${pctLabel})`);
+            line3En.push(`📑 ${totalLabel}/${ctxLabel} (${pctLabel})`);
         }
     }
-    // --- Daily token line: 🪙 Token今/月 (read from token-stats.json) ---
     if (footer?.todayTokens || footer?.monthTokens) {
         let tDay = 0, tMonth = 0;
         try {
@@ -319,10 +464,17 @@ function formatFooterRuntimeSegments(params) {
         const monthLabel = compactNumber(tMonth);
         const now = new Date();
         const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        dailyZh.push(`🪙 Token今/月: ${dayLabel}丨${monthLabel} · ${timeStr}`);
-        dailyEn.push(`🪙 Token today/month: ${dayLabel}丨${monthLabel} · ${timeStr}`);
+        line3Zh.push(`🪙 ${dayLabel}丨${monthLabel} · ${timeStr}`);
+        line3En.push(`🪙 ${dayLabel}丨${monthLabel} · ${timeStr}`);
     }
-    return { primaryZh, primaryEn, detailZh, detailEn, contextZh, contextEn, dailyZh, dailyEn };
+    // --- Line 4: balance for current API provider ---
+    const bal = getBalanceForModel(metrics?.model);
+    if (bal && footer?.cost) {
+        const val = bal.value != null ? `¥${bal.value.toFixed(2)}` : 'N/A';
+        line4Zh.push(`💰 ${bal.platform} ${val}`);
+        line4En.push(`💰 ${bal.platform} ${val}`);
+    }
+    return { line1Zh, line1En, line2Zh, line2En, line3Zh, line3En, line4Zh, line4En };
 }
 // ---------------------------------------------------------------------------
 // buildCardContent
@@ -471,10 +623,10 @@ function buildCompleteCard(params) {
         tag: 'markdown',
         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
     });
-    // Footer meta-info: split into three lines for readability.
+    // Footer meta-info: three lines for readability.
     // Line 1 (primary): status · elapsed · model
-    // Line 2 (detail):  tokens · cache · cost
-    // Line 3 (context): context window
+    // Line 2 (cost):    💸 total = input + output + cache · 🚀 firstToken
+    // Line 3 (stats):   tokens · context · daily tokens
     const fp = formatFooterRuntimeSegments({
         footer,
         metrics: footerMetrics,
@@ -489,21 +641,21 @@ function buildCompleteCard(params) {
     });
     const footerZhLines = [];
     const footerEnLines = [];
-    if (fp.primaryZh.length > 0) {
-        footerZhLines.push(fp.primaryZh.join(' · '));
-        footerEnLines.push(fp.primaryEn.join(' · '));
+    if (fp.line1Zh.length > 0) {
+        footerZhLines.push(fp.line1Zh.join(' · '));
+        footerEnLines.push(fp.line1En.join(' · '));
     }
-    if (fp.detailZh.length > 0) {
-        footerZhLines.push(fp.detailZh.join(' · '));
-        footerEnLines.push(fp.detailEn.join(' · '));
+    if (fp.line2Zh.length > 0) {
+        footerZhLines.push(fp.line2Zh.join(' · '));
+        footerEnLines.push(fp.line2En.join(' · '));
     }
-    if (fp.contextZh.length > 0) {
-        footerZhLines.push(fp.contextZh.join(' · '));
-        footerEnLines.push(fp.contextEn.join(' · '));
+    if (fp.line3Zh.length > 0) {
+        footerZhLines.push(fp.line3Zh.join(' · '));
+        footerEnLines.push(fp.line3En.join(' · '));
     }
-    if (fp.dailyZh.length > 0) {
-        footerZhLines.push(fp.dailyZh.join(' · '));
-        footerEnLines.push(fp.dailyEn.join(' · '));
+    if (fp.line4Zh.length > 0) {
+        footerZhLines.push(fp.line4Zh.join(' · '));
+        footerEnLines.push(fp.line4En.join(' · '));
     }
     if (footerZhLines.length > 0) {
         elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));

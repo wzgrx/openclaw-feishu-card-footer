@@ -2,3 +2,8 @@ node_modules/
 .env
 token-stats.json
 *.log
+*.lock
+*lock*
+__pycache__/
+*.pyc
+.hermes/

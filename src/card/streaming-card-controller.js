@@ -692,6 +692,8 @@ class StreamingCardController {
             return;
         if (this._firstContentTime === null)
             this._firstContentTime = Date.now();
+        // Fire-and-forget pricing cache refresh (non-blocking, ~1s async fetch)
+        (0, builder_1.refreshPricingCache)();
         // Use splitReasoningText (consistent with onDeliver/onReasoningStream)
         // to extract <think> tag content before stripping it from the answer.
         // Previously only stripReasoningTags was called, silently discarding
