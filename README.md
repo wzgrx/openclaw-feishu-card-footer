@@ -40,7 +40,9 @@ Line 4:  💰 DeepSeek ¥205.11
 
 - OpenClaw `v2026.5.2` 或 `v2026.5.3`
 - `@larksuite/openclaw-lark` `v2026.4.10+`
-- Node.js `>= 18.0`（推荐 LTS v20+，已测试 v24.15.0）
+- Node.js **最新 LTS**（当前 v24.15.0，通过 nvm 安装）
+  - ⚠️ Node v22+ 需设置 `NODE_DISABLE_COMPILE_CACHE=1` 避免 compile cache 冲突
+  - 安装命令：`nvm install --lts`
 
 ### 自动部署（推荐）
 
