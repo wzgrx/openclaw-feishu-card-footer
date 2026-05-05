@@ -134,27 +134,60 @@ function refreshBalanceCache() {
             }).on('error', reject);
         });
     }
+    // Bailian (阿里百炼) balance — use the /v1/finance/balance endpoint
+    function fetchBailianBalance() {
+        return new Promise((resolve, reject) => {
+            const req = https.get('https://dashscope.aliyuncs.com/api/v1/finance/balance', {
+                headers: { 'Authorization': 'Bearer <YOUR_BAILIAN_API_KEY>', 'X-DashScope-OpenAPISource': 'CloudSDK' }
+            }, (res) => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+            });
+            req.on('error', reject);
+            req.end();
+        });
+    }
     Promise.all([
-        // REPLACE THE BELOW API KEYS with your own (these are HTTP fallbacks when cache file is unavailable):
         fetchJSON('https://api.deepseek.com/user/balance', '<YOUR_DEEPSEEK_API_KEY>')
             .then(r => { if (r?.is_available && r?.balance_infos?.[0]) _balanceCache.deepseek = parseFloat(r.balance_infos[0].total_balance); })
             .catch(() => {}),
         fetchJSON('https://api.siliconflow.cn/v1/user/info', '<YOUR_SILICONFLOW_API_KEY>')
             .then(r => { if (r?.status && r?.data) _balanceCache.siliconflow = parseFloat(r.data.totalBalance); })
             .catch(() => {}),
+        fetchBailianBalance()
+            .then(r => { if (r?.data?.availableAmount) _balanceCache.alibaba = parseFloat(r.data.availableAmount); })
+            .catch(() => {}),
     ]).then(() => { if (Object.keys(_balanceCache).length > 0) _balanceCacheTime = Date.now(); }).catch(() => {});
 }
 function getBalanceForModel(modelName) {
     refreshBalanceCache();
     if (!_balanceCache || Object.keys(_balanceCache).length === 0) return null;
-    const id = (modelName || '').split('/').pop() || '';
+    // Parse provider/model format from OpenClaw: bailian/qwen3.6-plus, deepseek/deepseek-v4-flash, etc.
+    const parts = (modelName || '').split('/');
+    const provider = parts.length >= 2 ? parts[0].toLowerCase() : '';
+    const id = parts.pop() || '';
+    // Detect by provider prefix first (more reliable)
+    if (provider === 'deepseek') {
+        return _balanceCache.deepseek != null ? { platform: 'DeepSeek', value: _balanceCache.deepseek } : null;
+    }
+    if (provider === 'siliconflow') {
+        return _balanceCache.siliconflow != null ? { platform: '硅基流动', value: _balanceCache.siliconflow } : null;
+    }
+    if (provider === 'bailian' || provider === 'dashscope') {
+        return _balanceCache.alibaba != null ? { platform: '阿里百炼', value: _balanceCache.alibaba } : null;
+    }
+    if (provider === 'volcengine' || provider === 'ark') {
+        return _balanceCache.volcengine != null ? { platform: '火山引擎', value: _balanceCache.volcengine } : null;
+    }
+    // Fallback: detect by model ID prefix
     if (id.startsWith('deepseek')) {
         return _balanceCache.deepseek != null ? { platform: 'DeepSeek', value: _balanceCache.deepseek } : null;
     }
-    if (id.startsWith('qwen')) {
+    if (id.startsWith('qwen') || id.startsWith('glm') || id.startsWith('kimi')) {
         return _balanceCache.alibaba != null ? { platform: '阿里百炼', value: _balanceCache.alibaba } : null;
     }
-    if (id.startsWith('doubao') || id.startsWith('kimi')) {
+    if (id.startsWith('doubao') || id.startsWith('seed')) {
         return _balanceCache.volcengine != null ? { platform: '火山引擎', value: _balanceCache.volcengine } : null;
     }
     return null;

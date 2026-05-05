@@ -57,30 +57,36 @@
     ]
   },
 
+  "messages": {
+    "visibleReplies": "automatic",
+    "stream": true,
+    "streamChunkSize": 20,
+    "streamInterval": 100,
+    "footer": {
+      "status": true,
+      "elapsed": true,
+      "tokens": true,
+      "cache": true,
+      "context": true,
+      "model": true,
+      "cost": true,
+      "todayTokens": true,
+      "monthTokens": true
+    }
+  },
+
   "channels": {
     "feishu": {
-      "appId": "YOUR_FEISHU_APP_ID",
-      "appSecret": "YOUR_FEISHU_APP_SECRET",
-      "connectionMode": "websocket",
-      "enabled": true,
-      "groups": { "*": { "enabled": true } },
+      "app_id": "YOUR_FEISHU_APP_ID",
+      "app_secret": "YOUR_FEISHU_APP_SECRET",
+      "dmPolicy": "open",
       "groupPolicy": "open",
       "requireMention": false,
-      "dmPolicy": "open",
       "renderMode": "card",
-      "streaming": true,
       "replyMode": {
         "default": "auto",
         "direct": "streaming",
         "group": "streaming"
-      },
-      "footer": {
-        "status": true,
-        "elapsed": true,
-        "tokens": true,
-        "cache": true,
-        "context": true,
-        "model": true
       }
     }
   },
@@ -93,17 +99,13 @@
   },
 
   "tools": {
-    "profile": "full",
-    "sessions": { "visibility": "all" }
+    "alsoAllow": ["message"]
   },
 
-  "commands": { "native": "auto" },
-
-  "gateway": {
-    "mode": "local",
-    "auth": {
-      "mode": "token",
-      "token": "YOUR_GATEWAY_TOKEN"
+  "session": {
+    "store": {
+      "enabled": true,
+      "path": "/home/wzgrx/.openclaw/sessions/store.json"
     }
   }
 }

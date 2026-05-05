@@ -26,7 +26,7 @@
 ### 🖼️ Footer 布局
 
 ```
-Line 1:  ✅ 已完成 · ⏳️ 5.2s · DeepSeek Flash
+Line 1:  ✅ 已完成 · ⏳️ 5.2s · deepseek-v4-flash
 Line 2:  💸 ¥0.002 = 入¥0.001 + 出¥0.001 + 缓存¥0.001 · 🚀首token 1.20s
 Line 3:  ↑ 1.2K ↓ 500 · 缓存 300/100 (75%) · 📑 1.7K/32K (5%) · 🪙 5.2K丨128.3K · 20:09
 Line 4:  💰 DeepSeek ¥205.11
@@ -40,7 +40,7 @@ Line 4:  💰 DeepSeek ¥205.11
 
 - OpenClaw `v2026.5.2` 或 `v2026.5.3`
 - `@larksuite/openclaw-lark` `v2026.4.10+`
-- Node.js `>= 18.0`
+- Node.js `>= 18.0`（推荐 LTS v20+，已测试 v24.15.0）
 
 ### 自动部署（推荐）
 
@@ -58,118 +58,72 @@ bash auto-patch.sh
 5. 部署 Token 聚合器守护进程
 6. 重启网关
 
-### 手动部署
-
-#### OpenClaw v5.2
+### 手动部署 — v5.3
 
 ```bash
 # 1. 安装飞书插件
-npm install -g @larksuite/openclaw-lark@^2026.4.10
-
-# 2. 应用补丁
-cp -r patches/v5.2/* /usr/lib/node_modules/@larksuite/openclaw-lark/
-
-# 3. 安装 Token 聚合器
-mkdir -p ~/.openclaw/channels/feishu
-cp token-aggregator/*.js ~/.openclaw/channels/feishu/
-
-# 4. 安装守护进程
-cp scripts/openclaw-token-aggregator.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now openclaw-token-aggregator
-
-# 5. 重启网关
-systemctl --user restart openclaw-gateway
-```
-
-#### OpenClaw v5.3
-
-```bash
-# 1. 安装飞书插件（通过 OpenClaw 插件管理）
-echo "Y" | openclaw plugins install @larksuite/openclaw-lark@2026.4.10
+openclaw plugins install @larksuite/openclaw-lark@2026.4.10
 
 # 2. 应用补丁
 cp -r patches/v5.3/* ~/.openclaw/npm/node_modules/@larksuite/openclaw-lark/
 
-# 3. 补齐 v5.3 缺失的函数（重要！）
-#    v5.3 版本的源码缺少 buildStreamingThinkingCard 和
-#    buildStreamingPreAnswerCard，需从 patches/v5.3/missing-functions.js 补回
-cp patches/v5.3/missing-functions.js \
-   ~/.openclaw/npm/node_modules/@larksuite/openclaw-lark/src/card/
+# 3. 清除 JITI 缓存（重要！否则旧代码可能仍生效）
+rm -rf ~/.openclaw/.jit-cache/
 
-# 4. 安装 Token 聚合器 & 守护进程
-#    同 v5.2
+# 4. 配置 Footer（见下方配置参考）
 
 # 5. 重启网关
 systemctl --user restart openclaw-gateway
 ```
 
+### 手动部署 — v5.2 (已停止维护)
+
+v5.2 版本的补丁仍在 `patches/v5.2/` 目录中（如存在），但不再推荐使用。
+
 ---
 
-## 🤖 AI 自动适配指南
+## ⚙️ 配置参考
 
-> 以下内容专为 AI 代码助手设计，当收到本仓库 URL 时可自动执行适配部署。
+### 🚨 v5.3 配置位置变动（重要！）
 
-### AI 部署指令
+自 v5.2 起，**footer 配置已从 `channels.feishu.footer` 移至全局 `messages.footer` 段**。在 `channels.feishu` 下不再支持配置流式/Footer 开关。
 
-```markdown
-<!-- AI DEPLOY: openclaw-feishu-card-footer -->
-<!-- 目标: 为 OpenClaw 飞书机器人卡片添加增强 Footer -->
+**✅ 正确配置（v5.3 必需）：**
 
-步骤 1: 检测环境
-  - 执行 `openclaw --version` 获取版本号
-  - 若为 v2026.5.x → 提取主版本 5.2 或 5.3
-  - 检查 `@larksuite/openclaw-lark` 是否已安装
-
-步骤 2: 定位插件目录
-  - v5.2: `/usr/lib/node_modules/@larksuite/openclaw-lark/`
-  - v5.3: `~/.openclaw/npm/node_modules/@larksuite/openclaw-lark/`
-  - 若不存在: 先安装 `openclaw plugins install @larksuite/openclaw-lark@2026.4.10`
-
-步骤 3: 补丁文件列表
-  | 文件 | 修改内容 |
-  |------|----------|
-  | `src/core/footer-config.js` | 默认开启所有 footer 字段 |
-  | `src/card/builder.js` | 4行格式 formatFooterRuntimeSegments + 余额查询 |
-  | `src/card/streaming-card-controller.js` | 定价参数独立传递 |
-  | `src/card/reply-dispatcher.js` | 强制卡片模式 + 可见回复 |
-
-步骤 4: v5.3 专属修复
-  - builder.js 缺少 `buildStreamingThinkingCard` → 需在
-    `buildStreamingToolUsePendingPanel` 上方插入定义
-  - streaming-card-controller.js 需将 `inputPrice/outputPrice/cacheReadPrice`
-    作为独立参数传递给 buildCardContent（不合并进 footerMetrics）
-
-步骤 5: 验证
-  - 重启网关
-  - 发送测试消息，检查卡片底部 4 行 Footer 是否完整显示
-  - 检查日志是否有 `ReferenceError` 或 `final card update failed`
-
-步骤 6: 安装 Token 聚合器（可选，用于 🪙 日/月统计）
-  - 复制 token-aggregator.js 至 `~/.openclaw/channels/feishu/`
-  - 创建 systemd user 服务并启动
+```json
+{
+  "messages": {
+    "visibleReplies": "automatic",
+    "stream": true,
+    "streamChunkSize": 20,
+    "streamInterval": 100,
+    "footer": {
+      "status": true,
+      "elapsed": true,
+      "tokens": true,
+      "cache": true,
+      "context": true,
+      "model": true,
+      "cost": true,
+      "todayTokens": true,
+      "monthTokens": true
+    }
+  },
+  "channels": {
+    "feishu": {
+      "app_id": "...",
+      "app_secret": "...",
+      // 这里不要再加 streaming/footer 相关配置
+    }
+  }
+}
 ```
 
-### AI 补丁逻辑（伪代码）
+> `visibleReplies: "automatic"` 是**强制要求**，否则 Agent 会降级到 `send` 工具路径导致非流式回复，Footer 不显示。
 
-```python
-def deploy_footer_patch():
-    version = detect_openclaw_version()
-    plugin_dir = get_plugin_dir(version)
-    
-    if version == "5.3":
-        # Missing functions in v5.3 source
-        inject_missing_functions(plugin_dir + "/src/card/builder.js")
-    
-    patches = load_patches(version)
-    for patch in patches:
-        apply_patch(plugin_dir, patch)
-    
-    install_token_aggregator()
-    
-    restart_gateway()
-    verify_footer()
-```
+### 模型定价配置
+
+定价数据在 `models.providers` 的 `cost` 字段配置。参考 `openclaw.json.example`。
 
 ---
 
@@ -178,50 +132,36 @@ def deploy_footer_patch():
 ### 文件结构
 
 ```
-├── auto-patch.sh                 # 全自动部署脚本（版本检测 + 补丁 + 重启）
+├── auto-patch.sh                 # 全自动部署脚本
 ├── patches/
 │   ├── v5.2/                     # OpenClaw v2026.5.2 补丁
-│   │   ├── 001-footer-config.patch
-│   │   ├── 002-builder.patch
-│   │   ├── 003-streaming-card-controller.patch
-│   │   ├── 004-reply-dispatcher.patch
-│   │   ├── 005-monitor.patch
-│   │   └── 006-token-aggregator.patch
 │   └── v5.3/                     # OpenClaw v2026.5.3 补丁
 │       ├── 001-footer-config.patch
 │       ├── 002-builder.patch
 │       ├── 003-streaming-card-controller.patch
 │       ├── 004-reply-dispatcher.patch
-│       ├── 005-token-aggregator.patch
-│       ├── 006-token-aggregator-daemon.patch
-│       └── missing-functions.js
-├── src/                          # 补丁后的完整源文件（参考）
+│       └── missing-functions.js   # v5.3 源码缺失的构建函数
+├── src/                          # 补丁后的完整源文件
 │   ├── card/
 │   │   ├── builder.js
 │   │   ├── streaming-card-controller.js
 │   │   └── reply-dispatcher.js
 │   └── core/
 │       └── footer-config.js
-├── token-aggregator/             # Token 统计聚合器
-│   ├── token-aggregator.js       # 事件式监听（插件热插拔）
-│   └── token-aggregator-daemon.js # 守护扫描进程
+├── token-aggregator/
+│   ├── token-aggregator.js
+│   └── token-aggregator-daemon.js
 ├── scripts/
-│   └── openclaw-token-aggregator.service  # systemd unit
+│   ├── balance-check.py          # 余额查询（4平台）
+│   ├── balance-check.js          # 余额查询（Node版）
+│   ├── model-fetcher.py          # 模型注册表更新
+│   ├── pricing_db.py             # 模型定价库
+│   ├── deepseek-pricing-watch.py # DeepSeek 价格监控
+│   ├── sync-patches.sh           # 补丁同步工具
+│   └── openclaw-token-aggregator.service
 ├── openclaw.json.example         # 配置模板
 └── README.md                     # 本文件
 ```
-
-### 版本差异详解
-
-| 维度 | v5.2 | v5.3 | 影响 |
-|------|------|------|------|
-| OpenClaw 版本 | v2026.5.2 | v2026.5.3 | 安装路径不同 |
-| 插件安装方式 | `npm install -g` | `openclaw plugins install` | 路径从 `/usr/lib/` 变为 `~/.openclaw/npm/` |
-| 插件形态 | 带 `dist/` 编译产物 | 纯源码（无 `dist/`） | v5.3 需补回缺失函数 |
-| 流式卡片控制 | 全局构建函数 | 需单独传递定价参数 | streaming-card-controller.js 调用方式不同 |
-| footer 配置位置 | `channels.feishu.footer` | 同上 | 不变 |
-
----
 
 ### Token 统计流
 
@@ -238,60 +178,290 @@ def deploy_footer_patch():
 ### 余额数据流
 
 ```
-balance-check.js（定时脚本）→ balance-cache.json
+balance-check.py（cron 每2h）→ balance-cache.json
                                     ↓
-                          getBalanceForModel() 读取
+                          builder.js 读取（HTTP 回退）
+                                    ↓
+                          getBalanceForModel() 匹配当前模型
                                     ↓
                           formatFooterRuntimeSegments 展示 💰
 ```
 
 ---
 
-## ⚙️ 配置参考
+## 💰 各平台余额查询技术细节
 
-见 `openclaw.json.example`。
+### DeepSeek
 
-关键 Footer 配置（放在 `channels.feishu.footer` 下）：
+| 项目 | 值 |
+|------|-----|
+| **端点** | `https://api.deepseek.com/user/balance` |
+| **方法** | GET |
+| **鉴权** | `Authorization: Bearer <API_KEY>` |
+| **响应格式** | `{ "balance_infos": [{ "total_balance": "175.57", "topped_up_balance": "150.00", "granted_balance": "25.57", "currency": "CNY" }], "is_available": true }` |
+| **Python 代码** | `fetch_json("https://api.deepseek.com/user/balance", {"Authorization": f"Bearer {DEEPSEEK_KEY}"})` |
+| **Node.js (builder.js fallback)** | `fetchJSON('https://api.deepseek.com/user/balance', apiKey)` → `r.balance_infos[0].total_balance` |
 
+### 硅基流动
+
+| 项目 | 值 |
+|------|-----|
+| **端点** | `https://api.siliconflow.cn/v1/user/info` |
+| **方法** | GET |
+| **鉴权** | `Authorization: Bearer <API_KEY>` |
+| **响应格式** | `{ "status": true, "data": { "totalBalance": 168.81, "chargeBalance": 100.00, "balance": 68.81, "currency": "CNY" } }` |
+| **Python 代码** | `fetch_json("https://api.siliconflow.cn/v1/user/info", {"Authorization": f"Bearer {SILICONFLOW_KEY}"})` |
+
+### 阿里百炼（两种方式）
+
+**方式 A：DashScope API（推荐，无需额外 SDK）**
+
+| 项目 | 值 |
+|------|-----|
+| **端点** | `https://dashscope.aliyuncs.com/api/v1/finance/balance` |
+| **方法** | GET |
+| **鉴权** | `Authorization: Bearer <DASHSCOPE_API_KEY>` |
+| **额外头** | `X-DashScope-OpenAPISource: CloudSDK` |
+| **响应格式** | `{ "data": { "availableAmount": "67.57" } }` |
+| **代码** | `https.get('https://dashscope.aliyuncs.com/api/v1/finance/balance', { headers: { 'Authorization': 'Bearer <key>', 'X-DashScope-OpenAPISource': 'CloudSDK' } })` |
+
+**方式 B：阿里云 BSS SDK（需要 RAM AK/SK + BssOpenApi 权限）**
+
+| 项目 | 值 |
+|------|-----|
+| **端点** | `business.aliyuncs.com` |
+| **SDK** | `alibabacloud_bssopenapi20171214` |
+| **方法** | `QueryAccountBalance` |
+| **代码** | `BssOpenApiClient(config).query_account_balance().body.data.available_amount` |
+
+### 🔥 火山引擎（关键发现：易踩坑）
+
+| 项目 | 值 |
+|------|-----|
+| **端点** | `https://billing.volcengineapi.com/` |
+| **Action** | **`QueryBalanceAcct`**（⚠️ 不是 `QueryBalance`，这个不存在！） |
+| **Version** | `2022-01-01` |
+| **方法** | POST |
+| **Region** | **`cn-beijing`**（⚠️ 不是 `cn-north-1`！） |
+| **Content-Type** | **`application/json`**（⚠️ 不是 `application/x-www-form-urlencoded`！） |
+| **Body** | `{}`（空 JSON 对象） |
+| **签名 SDK** | **`volcenginesdkcore.SignerV4`**（⚠️ 不是 `volcengine.auth.SignerV4`，两者签名逻辑不同！） |
+
+**凭证格式陷阱：**
+- **Access Key ID**: `AKLT` 开头（如 `AKLTZTM1MDM1Nj...`）
+- **Secret Access Key**: base64 编码字符串
+- ⚠️ 用户经常把 AK 和 SK **写反** — `AKLT` 开头的是 Access Key ID，不是 Secret Access Key！
+
+**Python 代码：**
+```python
+from volcenginesdkcore.signv4 import SignerV4
+from six.moves.urllib.parse import urlencode
+import requests, json
+
+headers = {"Content-Type": "application/json", "Host": "billing.volcengineapi.com"}
+body = json.dumps({})
+query = [("Action", "QueryBalanceAcct"), ("Version", "2022-01-01")]
+SignerV4.sign("/", "POST", headers, body, {}, query, AK, SK, "cn-beijing", "billing")
+url = "https://billing.volcengineapi.com/?" + urlencode(query)
+resp = requests.post(url, headers=headers, data=body, timeout=10)
+balance = float(resp.json()["Result"]["AvailableBalance"])
+```
+
+**响应格式：**
 ```json
 {
-  "channels": {
-    "feishu": {
-      "footer": {
-        "status": true,
-        "elapsed": true,
-        "tokens": true,
-        "cache": true,
-        "context": true,
-        "model": true
-      }
-    }
+  "Result": {
+    "AvailableBalance": "247.11",
+    "CashBalance": "247.11",
+    "FreezeAmount": "0",
+    "CreditLimit": "0",
+    "ArrearsBalance": "0"
   }
+}
+```
+
+### getBalanceForModel() 匹配逻辑（builder.js）
+
+```javascript
+function getBalanceForModel(modelName) {
+    // 1. 优先按 provider 前缀检测
+    //    "deepseek/xxx" → DeepSeek
+    //    "siliconflow/xxx" → 硅基流动
+    //    "bailian/xxx" 或 "dashscope/xxx" → 阿里百炼
+    //    "volcengine/xxx" 或 "ark/xxx" → 火山引擎
+    
+    // 2. 回退按模型 ID 前缀检测
+    //    "deepseek*" → DeepSeek
+    //    "qwen*"/"glm*"/"kimi*" → 阿里百炼
+    //    "doubao*"/"seed*" → 火山引擎
 }
 ```
 
 ---
 
-## 🔧 常见问题
+## 📅 定时任务参考
 
-### Q: 应用补丁后网关启动失败
+### 余额查询（每2小时）
 
-检查日志:
+```bash
+# 使用 balance-check.py（需要填入凭证）
+python3 /home/wzgrx/.hermes/scripts/balance-check.py
+
+# Hermes Agent cron 配置
+cronjob action=create schedule="every 2h" name="余额更新" \
+  prompt="执行 ~/.hermes/scripts/balance-check.py，输出 JSON 格式结果"
+```
+
+### 模型注册表（每天 3:00）
+
+```bash
+# 拉取 4 平台最新模型列表 + 定价同步
+python3 /home/wzgrx/.hermes/scripts/model-fetcher.py
+
+# 自动更新 openclaw.json 中的模型定价
+# 输出摘要推送至飞书群聊
+```
+
+### DeepSeek 价格监控（每天 9:01）
+
+```bash
+python3 /home/wzgrx/.hermes/scripts/deepseek-pricing-watch.py
+# 爬取 DeepSeek 官方定价页，涨价时自动更新 openclaw.json
+```
+
+---
+
+## ⚠️ 已知问题与解决方案
+
+### Q1: 应用补丁后网关启动失败
+
+**检查日志：**
 ```bash
 journalctl --user -u openclaw-gateway --no-pager -n 50 | grep -i error
 ```
 
-常见原因：
-1. **v5.3 缺少函数**: `ReferenceError: buildStreamingThinkingCard is not defined` → 运行 `auto-patch.sh` 或手动补齐缺失函数
-2. **定价参数传递错误**: `ReferenceError: providerName is not defined` → 确认 `streaming-card-controller.js` 中 `modelPrices` 作为独立参数传递
-3. **插件路径错误**: 确认使用正确的插件目录
+**常见原因：**
+1. **v5.3 缺少函数** — `ReferenceError: buildStreamingThinkingCard is not defined`
+   → 运行 `auto-patch.sh` 或手动复制 `patches/v5.3/missing-functions.js`
 
-### Q: Footer 不显示
+2. **JITI 缓存未清除** — 旧缓存保留未打补丁的编译代码
+   → 删除 `~/.openclaw/.jit-cache/`
 
-- 确认 `channels.feishu.streaming: true` 已启用
-- 确认 `channels.feishu.footer` 配置正确
-- 确认日志无错误
-- 检查 `reply-mode.js` 中回复模式是否为 `streaming`
+3. **systemd 服务冲突** — v5.3 自带 systemd user service，手动启动前需停止：
+   ```bash
+   systemctl --user stop openclaw-gateway.service
+   systemctl --user disable openclaw-gateway.service  # 可选：永久禁用
+   ```
+
+### Q2: Footer 不显示
+
+- ✅ 确认 `messages.visibleReplies: "automatic"` 已配置（最关键！）
+- ✅ 确认 `messages.footer` 配置正确（不是 `channels.feishu.footer`）
+- ✅ 确认 `messages.stream: true`
+- ✅ 清除 JITI 缓存后重启
+
+### Q3: 只有 Line 1 显示（Agent 降级）
+
+症状：日志显示 `dispatch complete (queuedFinal=false, replies=0)`
+
+原因：Agent fallback 至 `send` 工具路径，未进入流式管线。
+
+解决：
+1. 确认 `messages.visibleReplies: "automatic"`（强制走流式）
+2. 检查 `tools.alsoAllow` 是否错误覆盖了可见性限制
+3. 日志应显示 `queuedFinal=true, replies=1`
+
+### Q4: Node.js v24 性能问题
+
+Node.js v22+ 引入了编译缓存（compile cache），在某些环境下与 OpenClaw 冲突。
+
+**解决方案：** 使用 `NODE_DISABLE_COMPILE_CACHE=1` 环境变量启动：
+```bash
+NODE_DISABLE_COMPILE_CACHE=1 openclaw gateway run
+```
+
+### Q5: 火山引擎余额查询失败
+
+| 错误 | 原因 | 解决 |
+|------|------|------|
+| `SignatureDoesNotMatch` | 签名算法或 SDK 不对 | 使用 `volcenginesdkcore.SignerV4` |
+| `InvalidAccessKey` | AK/SK 顺序反了 | `AKLT` 开头的是 Access Key ID |
+| `InvalidActionOrVersion` | Action 名/版本错 | 用 `QueryBalanceAcct` 不是 `QueryBalance` |
+| `MissingParameter` | Content-Type 或 Body 格式错 | 用 `application/json` + body `{}` |
+
+### Q6: 凭证管理
+
+所有 API 凭证应存储在隐私目录 `~/.hermes/data/` 下，权限 600：
+```bash
+chmod 600 ~/.hermes/data/volcengine-credentials.json
+chmod 600 ~/.hermes/data/aliyun-credentials.json  # 如有
+```
+
+---
+
+## 🔧 版本差异（v5.2 vs v5.3）
+
+| 维度 | v5.2 | v5.3 |
+|------|------|------|
+| OpenClaw 版本 | v2026.5.2 | v2026.5.3 |
+| 插件安装方式 | `npm install -g` | `openclaw plugins install` |
+| 插件路径 | `/usr/lib/node_modules/` | `~/.openclaw/npm/node_modules/` |
+| 插件形态 | 带 `dist/` 编译产物 | 纯源码（无 `dist/`） |
+| 缺失函数 | 无 | `buildStreamingThinkingCard` |
+| Footer 配置位置 | `channels.feishu.footer` | **`messages.footer`**（全局） |
+| 流式配置位置 | `channels.feishu.streaming` | **`messages.stream`**（全局） |
+| 自动重启 | systemd 可选 | **自带 systemd user 服务** |
+
+**v5.3 的 systemd 服务：**
+```bash
+# 查看服务状态
+systemctl --user status openclaw-gateway
+
+# 手动启动前必须停止（否则端口冲突）
+systemctl --user stop openclaw-gateway.service
+```
+
+---
+
+## 🤖 AI 自动适配指南（供 AI 助手使用）
+
+> 以下内容专为 AI 代码助手设计。收到本仓库 URL 或部署请求时，按此流程执行。
+
+### AI 部署指令（v5.3）
+
+```markdown
+<!-- AI DEPLOY: openclaw-feishu-card-footer -->
+
+步骤 1: 检测环境
+  - openclaw --version → 获取主版本号
+  - node --version → 若 v22+ 需注意 compile cache
+
+步骤 2: 停止 systemd 服务（如存在）
+  systemctl --user stop openclaw-gateway.service
+
+步骤 3: 定位插件目录
+  - v5.3: ~/.openclaw/npm/node_modules/@larksuite/openclaw-lark/
+  - v5.2: /usr/lib/node_modules/@larksuite/openclaw-lark/
+  - 如不存在：先 npm install -g @larksuite/openclaw-lark@2026.4.10
+
+步骤 4: 应用补丁
+  - cp patches/v5.3/missing-functions.js <plugin_dir>/src/card/
+  - cp patches/v5.3/*.patch <plugin_dir>/ （patch -p0）
+  - 或直接 cp src/* <plugin_dir>/
+
+步骤 5: 写 openclaw.json
+  - messages.visibleReplies: "automatic"（必需！）
+  - messages.footer: { status/enabled/elapsed/tokens/cache/model: true }
+  - 不要在 channels.feishu 下配 footer/streaming
+
+步骤 6: 清除缓存 + 重启
+  - rm -rf ~/.openclaw/.jit-cache/
+  - NODE_DISABLE_COMPILE_CACHE=1 openclaw gateway run &
+
+步骤 7: 验证
+  - 发测试消息，检查 4 行 Footer
+  - 日志应有 queuedFinal=true, replies=1
+```
 
 ---
 
