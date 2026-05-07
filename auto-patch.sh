@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # OpenClaw Feishu Card Footer — 全自动部署脚本
-# 支持 OpenClaw v5.2 / v5.3 自动检测 + 补丁应用 + Token 聚合器安装
+# 支持 OpenClaw v2026.5.2 / v2026.5.3 / v2026.5.6 自动检测 + 补丁 + 重启
 # 用法: curl -sL https://github.com/wzgrx/openclaw-feishu-card-footer | bash
 #       或手动: bash auto-patch.sh
 # ============================================================================
@@ -38,9 +38,10 @@ info "OpenClaw v$OC_VER"
 case "$OC_VER" in
     2026.5.2)   OC_MAJOR="5.2" ;;
     2026.5.3)   OC_MAJOR="5.3" ;;
+    2026.5.6)   OC_MAJOR="5.6" ;;
     *)
-        warn "未识别的版本 v$OC_VER，将尝试 v5.3 方式部署"
-        OC_MAJOR="5.3"
+        warn "未识别的版本 v$OC_VER，将尝试 v5.6 方式部署"
+        OC_MAJOR="5.6"
         ;;
 esac
 info "目标版本: OpenClaw v${OC_MAJOR}"
@@ -50,7 +51,7 @@ if [[ "$OC_MAJOR" == "5.2" ]]; then
     PLUGIN_DIR="/usr/lib/node_modules/@larksuite/openclaw-lark"
     info "插件路径: $PLUGIN_DIR (全局 npm)"
 else
-    # v5.3: 先检查是否已安装，未安装则自动安装
+    # v5.3/v5.6: 先检查是否已安装，未安装则自动安装
     LOCAL_PLUGIN="$HOME/.openclaw/npm/node_modules/@larksuite/openclaw-lark"
     if [ ! -d "$LOCAL_PLUGIN" ]; then
         info "插件未安装，执行: openclaw plugins install @larksuite/openclaw-lark@2026.4.10"
@@ -79,7 +80,7 @@ mkdir -p "$BACKUP_DIR"
 cp -r "$PLUGIN_DIR/src" "$BACKUP_DIR/src"
 info "已备份到 $BACKUP_DIR"
 
-# ─── 3. v5.3 独有处理：补充缺失函数 ─────────────────────────────────────
+# ─── 3. v5.3/v5.6 专属处理 ─────────────────────────────────────────────
 if [[ "$OC_MAJOR" == "5.3" ]]; then
     header "🔧 v5.3 专属修复 — 补充缺失函数"
     
@@ -204,7 +205,20 @@ fi
 # ─── 4. 应用补丁 ──────────────────────────────────────────────────────────
 header "🩹 应用补丁"
 
-if [ -d "$PATCH_DIR" ]; then
+if [[ "$OC_MAJOR" == "5.6" ]]; then
+    # v5.6: 使用 src/ 完整覆盖模式（无独立 patches/v5.6/ 目录）
+    info "v5.6 使用完整覆盖模式..."
+    SRC_DIR="$SCRIPT_DIR/src"
+    if [ -d "$SRC_DIR/core" ]; then
+        info "从 src/core/ 复制文件..."
+        cp "$SRC_DIR/core/"* "$PLUGIN_DIR/src/core/"
+    fi
+    if [ -d "$SRC_DIR/card" ]; then
+        info "从 src/card/ 复制文件..."
+        cp "$SRC_DIR/card/"* "$PLUGIN_DIR/src/card/"
+    fi
+    info "✅ v5.6 核心补丁已应用"
+elif [ -d "$PATCH_DIR" ]; then
     PATCH_COUNT=0
     for patch_file in "$PATCH_DIR"/*.patch; do
         [ -f "$patch_file" ] || continue
@@ -239,13 +253,24 @@ header "📊 安装 Token 聚合器"
 AGGR_DIR="$HOME/.openclaw/channels/feishu"
 mkdir -p "$AGGR_DIR"
 
-if [ -f "$SCRIPT_DIR/token-aggregator/token-aggregator.js" ]; then
+# v5.6 使用 src/channel/ 中的完整组件（含 event-bus.js + monitor.js）
+if [[ "$OC_MAJOR" == "5.6" ]] && [ -d "$SCRIPT_DIR/src/channel" ]; then
+    info "v5.6: 从 src/channel/ 安装完整组件..."
+    cp "$SCRIPT_DIR/src/channel/"* "$AGGR_DIR/"
+    info "  token-aggregator.js ✓"
+    info "  token-aggregator-daemon.js ✓"
+    info "  event-bus.js ✓"
+    info "  monitor.js ✓"
+elif [ -f "$SCRIPT_DIR/token-aggregator/token-aggregator.js" ]; then
     cp "$SCRIPT_DIR/token-aggregator/token-aggregator.js" "$AGGR_DIR/"
     info "token-aggregator.js"
 fi
 if [ -f "$SCRIPT_DIR/token-aggregator/token-aggregator-daemon.js" ]; then
-    cp "$SCRIPT_DIR/token-aggregator/token-aggregator-daemon.js" "$AGGR_DIR/"
-    info "token-aggregator-daemon.js"
+    # v5.6 已从 src/channel/ 复制，跳过
+    if [[ "$OC_MAJOR" != "5.6" ]]; then
+        cp "$SCRIPT_DIR/token-aggregator/token-aggregator-daemon.js" "$AGGR_DIR/"
+        info "token-aggregator-daemon.js"
+    fi
 fi
 
 # ─── 6. 启动聚合器守护进程（systemd user） ───────────────────────────────
@@ -310,5 +335,14 @@ grep -q "line1Zh\|primaryZh" "$PLUGIN_DIR/src/card/builder.js" 2>/dev/null && \
     echo "    ✗ Footer 补丁未生效"
 
 echo ""
+if [[ "$OC_MAJOR" == "5.6" ]]; then
+    echo -e "  ${YELLOW}⚠️  v5.6 专属提醒${NC}"
+    echo "  群聊不回消息？请在 openclaw.json 的 channels.feishu 中确认："
+    echo '    "replyMode": {'
+    echo '      "group": "streaming"'
+    echo "    }"
+    echo ""
+fi
+
 info "${BOLD}部署完成！${NC}在飞书群聊发消息测试卡片 footer。"
 echo ""
