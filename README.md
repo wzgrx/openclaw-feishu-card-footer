@@ -31,7 +31,7 @@
 | **操作系统** | Linux / WSL2 Ubuntu | 支持 systemd user 服务 |
 | **OpenClaw** | `v2026.5.7`（推荐）/ `v2026.5.6` / `v2026.5.3` / `v2026.5.2` | 通过 `openclaw --version` 查看 |
 | **Node.js** | **最新 LTS**（当前 v24.15.0） | 推荐通过 NVM 安装：`nvm install --lts` |
-| **飞书插件** | `@larksuite/openclaw-lark` `>= 2026.4.10` | ⚠️ 必须官方插件，不可用 `@openclaw/feishu` |
+| **飞书插件** | `@larksuite/openclaw-lark` `>= 2026.4.10`（v5.7 建议 `2026.5.7`） | ⚠️ 必须官方插件，不可用 `@openclaw/feishu` |
 | **systemd** | user 级别（`--user`） | Token 聚合器守护进程 + 网关服务 |
 
 ### Node.js 重要规范
@@ -48,7 +48,8 @@
 | 版本 | 安装方式 | 插件目录 |
 |------|----------|----------|
 | v2026.5.2 | `npm install -g` | `/usr/lib/node_modules/@larksuite/openclaw-lark/` |
-| v2026.5.3+ | `openclaw plugins install` | `~/.openclaw/npm/node_modules/@larksuite/openclaw-lark/` |
+| v2026.5.3 / v2026.5.6 | `openclaw plugins install` | `~/.openclaw/npm/node_modules/@larksuite/openclaw-lark/` |
+| **v2026.5.7** | **`npx install`** | **`~/.openclaw/extensions/openclaw-lark/`** |
 
 ### 目录结构约定
 
