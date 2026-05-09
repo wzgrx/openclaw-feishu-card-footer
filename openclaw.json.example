@@ -1,5 +1,5 @@
 {
-  "_comment": "OpenClaw 配置模板 — 替换 YOUR_* 占位符后使用",
+  "_comment": "OpenClaw 配置模板 (v5.7) — 替换 YOUR_* 占位符后使用",
 
   "models": {
     "mode": "merge",
@@ -61,45 +61,53 @@
     "visibleReplies": "automatic",
     "stream": true,
     "streamChunkSize": 20,
-    "streamInterval": 100,
-    "footer": {
-      "status": true,
-      "elapsed": true,
-      "tokens": true,
-      "cache": true,
-      "context": true,
-      "model": true,
-      "cost": true,
-      "todayTokens": true,
-      "monthTokens": true
-    }
+    "streamInterval": 100
   },
 
   "channels": {
     "feishu": {
       "app_id": "YOUR_FEISHU_APP_ID",
       "app_secret": "YOUR_FEISHU_APP_SECRET",
-      "dmPolicy": "open",
-      "groupPolicy": "open",
-      "requireMention": false,
-      "renderMode": "card",
+      "connectionMode": "card",
       "replyMode": {
         "default": "auto",
         "direct": "streaming",
         "group": "streaming"
-      }
+      },
+      "dmPolicy": "open"
     }
   },
 
   "plugins": {
     "entries": {
-      "openclaw-lark": { "enabled": true }
+      "openclaw-lark": { "enabled": true },
+      "feishu": { "enabled": false }
     },
     "allow": ["openclaw-lark"]
   },
 
   "tools": {
-    "alsoAllow": ["message"]
+    "alsoAllow": [
+      "message",
+      "message.search",
+      "message.search.all",
+      "message.search.filter",
+      "message.get_thread",
+      "message.get_thread.all",
+      "message.react",
+      "message.react.all",
+      "message.file",
+      "message.file.download",
+      "message.image",
+      "message.image.download",
+      "thread",
+      "thread.search",
+      "add_reaction",
+      "get_reactions",
+      "pin_message",
+      "unpin_message",
+      "get_pinned_messages"
+    ]
   },
 
   "session": {
@@ -107,5 +115,10 @@
       "enabled": true,
       "path": "/home/wzgrx/.openclaw/sessions/store.json"
     }
+  },
+
+  "gateway": {
+    "mode": "local",
+    "token": "YOUR_GATEWAY_TOKEN"
   }
 }

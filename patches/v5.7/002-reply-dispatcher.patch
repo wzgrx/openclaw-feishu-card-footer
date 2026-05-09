@@ -1,12 +1,17 @@
---- package/src/card/reply-dispatcher-orig.js	2026-05-09 19:47:24.998580322 +0800
-+++ package/src/card/reply-dispatcher.js	2026-05-09 19:48:07.944777141 +0800
-@@ -43,7 +43,8 @@
-     // ---- Reply mode resolution ----
-     const chatType = params.chatType;
-     const effectiveReplyMode = (0, reply_mode_1.resolveReplyMode)({ feishuCfg, chatType });
--    const replyMode = (0, reply_mode_1.expandAutoMode)({
-+    const replyMode = 'streaming'; // PATCH: Force streaming cards
-+    // const replyMode = (0, reply_mode_1.expandAutoMode)({
-         mode: effectiveReplyMode,
-         streaming: feishuCfg?.streaming,
-         chatType,
+--- src/card/reply-dispatcher.js	2026-05-10 03:41:55.045434531 +0800
++++ /home/wzgrx/.openclaw/extensions/openclaw-lark/src/card/reply-dispatcher.js	2026-05-10 02:55:59.480688085 +0800
+@@ -87,6 +87,14 @@
+             resolvedFooter,
+         })
+         : null;
++    // ---- Proactive card creation (fix: create card before agent responds) ----
++    if (controller) {
++        setImmediate(() => {
++            controller.ensureCardCreated().catch(err => {
++                log.warn('proactive card creation failed', { error: String(err) });
++            });
++        });
++    }
+     // ---- Static mode unavailable guard ----
+     // In streaming mode the controller owns its own guard; in static mode
+     // we still need unavailable-message detection for typing and deliver.

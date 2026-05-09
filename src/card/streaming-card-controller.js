@@ -381,13 +381,15 @@ class StreamingCardController {
                 }
             }
             catch { /* ignore */ }
-            // 3) Compute first-token latency
-            const firstTokenLatencyMs = this._firstContentTime
-                ? this._firstContentTime - this.dispatchStartTime
-                : undefined;
             // 4) Merge transcript totals with entry tokens
             const totalInput = transcriptTotals?.input ?? entryTokens?.input;
             const totalOutput = transcriptTotals?.output ?? entryTokens?.output;
+            // 4b) Capture first content time (also set by onPartialReply/onReasoningStream)
+            if (this._firstContentTime === null && (totalInput > 0 || totalOutput > 0)) {
+                this._firstContentTime = Date.now();
+            }
+            // Compute first-token latency
+            const firstTokenLatencyMs = this._firstContentTime
             // 5) Compute delta from last published event
             const delta = this._lastTokenEvent
                 ? {
@@ -597,6 +599,10 @@ class StreamingCardController {
     async onDeliver(payload) {
         if (!this.shouldProceed('onDeliver'))
             return;
+        // Capture first content time on first deliver (for non-streaming path)
+        if (this._firstContentTime === null) {
+            this._firstContentTime = Date.now();
+        }
         const text = payload.text ?? '';
         if (!text.trim())
             return;
@@ -692,8 +698,6 @@ class StreamingCardController {
             return;
         if (this._firstContentTime === null)
             this._firstContentTime = Date.now();
-        // Fire-and-forget pricing cache refresh (non-blocking, ~1s async fetch)
-        (0, builder_1.refreshPricingCache)();
         // Use splitReasoningText (consistent with onDeliver/onReasoningStream)
         // to extract <think> tag content before stripping it from the answer.
         // Previously only stripReasoningTags was called, silently discarding

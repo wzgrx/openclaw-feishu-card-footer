@@ -47,6 +47,7 @@ class TokenAggregator {
         this.log = (0, lark_logger_1.larkLogger)('TokenAggregator');
         this.todayTokens = 0;
         this.monthTokens = 0;
+        this.allTimeTokens = 0;
         this._todayDateKey = getShanghaiDateKey();
         this._monthKey = getShanghaiMonthKey();
         this._sessionTotals = new Map(); // sessionKey → cumulativeTotal (persistent)
@@ -98,6 +99,8 @@ class TokenAggregator {
                 if (sameMonth) {
                     this.monthTokens = typeof data.monthTokens === 'number' ? data.monthTokens : 0;
                 }
+                // Cumulative all-time total (always restored regardless of date)
+                this.allTimeTokens = typeof data.allTimeTokens === 'number' ? data.allTimeTokens : 0;
                 // Load daemon contribution snapshot (Bug#10)
                 if (sameDay) {
                     this._loadedDaemonToday = typeof data.daemonToday === 'number' ? data.daemonToday : 0;
@@ -156,6 +159,7 @@ class TokenAggregator {
                 dateKey: this._todayDateKey,
                 todayTokens: globalToday,
                 monthTokens: globalMonth,
+                allTimeTokens: this.allTimeTokens,
                 daemonToday: currentDaemonToday,
                 daemonMonth: currentDaemonMonth,
                 sessionTotals: sessionTotalsObj,
@@ -206,6 +210,7 @@ class TokenAggregator {
                 return;
             this.todayTokens += tokens;
             this.monthTokens += tokens;
+            this.allTimeTokens += tokens;
             // Session-level dedup
             if (event.sessionKey) {
                 const prev = this._sessionTotals.get(event.sessionKey) || 0;

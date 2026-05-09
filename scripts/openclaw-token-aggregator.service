@@ -1,15 +1,14 @@
 [Unit]
 Description=OpenClaw Token Aggregator Daemon
-Documentation=https://github.com/wzgrx/openclaw-feishu-card-footer
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/node %h/.openclaw/channels/feishu/token-aggregator-daemon.js
+ExecStart=/usr/bin/node /home/wzgrx/.openclaw/channels/feishu/token-aggregator-daemon.js
 Restart=on-failure
 RestartSec=10
-WorkingDirectory=%h/.openclaw/channels/feishu
-Environment=NODE_ENV=production
+WorkingDirectory=/home/wzgrx/.openclaw/channels/feishu
+Environment=NODE_DISABLE_COMPILE_CACHE=1
 
 [Install]
 WantedBy=default.target

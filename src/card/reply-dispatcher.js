@@ -87,6 +87,14 @@ function createFeishuReplyDispatcher(params) {
             resolvedFooter,
         })
         : null;
+    // ---- Proactive card creation (fix: create card before agent responds) ----
+    if (controller) {
+        setImmediate(() => {
+            controller.ensureCardCreated().catch(err => {
+                log.warn('proactive card creation failed', { error: String(err) });
+            });
+        });
+    }
     // ---- Static mode unavailable guard ----
     // In streaming mode the controller owns its own guard; in static mode
     // we still need unavailable-message detection for typing and deliver.

@@ -52,7 +52,7 @@ class TokenStatsManager {
                 return JSON.parse(fs.readFileSync(STATS_PATH, 'utf8'));
             }
         } catch (e) { /* ignore */ }
-        return { dateKey: getShanghaiDateKey(), todayTokens: 0, monthTokens: 0 };
+        return { dateKey: getShanghaiDateKey(), todayTokens: 0, monthTokens: 0, allTimeTokens: 0 };
     }
 
     save() {
@@ -96,7 +96,7 @@ class TokenStatsManager {
 
             const today = getShanghaiDateKey();
             const thisMonth = today.substring(0, 7);
-            let tDay = 0, tMonth = 0;
+            let tDay = 0, tMonth = 0, tAll = 0;
 
             for (const [key, entry] of Object.entries(sessions)) {
                 if (typeof entry !== 'object' || !entry) continue;
@@ -110,11 +110,16 @@ class TokenStatsManager {
 
                 if (entryDate === today) tDay += total;
                 if (entryDate.substring(0, 7) === thisMonth) tMonth += total;
+                tAll += total; // always accumulate for all-time
             }
 
             this.stats.dateKey = today;
             this.stats.todayTokens = tDay;
             this.stats.monthTokens = tMonth;
+            // allTimeTokens only goes up — never reset
+            if (tAll > (this.stats.allTimeTokens || 0)) {
+                this.stats.allTimeTokens = tAll;
+            }
 
             this.save();
         } catch (e) {
