@@ -153,7 +153,7 @@ systemctl --user stop openclaw-gateway
 
 # 2. 安装飞书插件（npx 方式，安装到 extensions/）
 cd ~/.openclaw
-npx -y @larksuite/openclaw-lark@2026.5.7 install --version 2026.5.7 --tools-version 1.0.42
+npx -y @larksuite/openclaw-lark@2026.5.7 install --version 2026.5.7 --tools-version 1.0.43
 
 # 3. 动态定位插件目录
 PLUGIN_DIR=$(find ~/.openclaw -name "builder.js" -path "*openclaw-lark*" -exec dirname {} \; | sed 's|/src/card||' | head -1)

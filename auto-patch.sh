@@ -53,8 +53,22 @@ info "目标版本: OpenClaw v${OC_MAJOR}"
 if [[ "$OC_MAJOR" == "5.2" ]]; then
     PLUGIN_DIR="/usr/lib/node_modules/@larksuite/openclaw-lark"
     info "插件路径: $PLUGIN_DIR (全局 npm)"
+elif [[ "$OC_MAJOR" == "5.7" ]]; then
+    # v5.7: npx install 安装到 extensions/ 路径（与 v5.3/v5.6 不同！）
+    EXT_PLUGIN="$HOME/.openclaw/extensions/openclaw-lark"
+    if [ ! -d "$EXT_PLUGIN" ]; then
+        info "插件未安装，执行: npx -y @larksuite/openclaw-lark@2026.5.7 install"
+        cd "$HOME/.openclaw" 2>/dev/null
+        npx -y "@larksuite/openclaw-lark@2026.5.7" install --version 2026.5.7 --tools-version 1.0.43 2>/dev/null || {
+            warn "npx install 失败，尝试降级 tools-version..."
+            npx -y "@larksuite/openclaw-lark@2026.5.7" install --version 2026.5.7 --tools-version 1.0.42
+        }
+        cd "$SCRIPT_DIR" 2>/dev/null
+    fi
+    PLUGIN_DIR="$EXT_PLUGIN"
+    info "插件路径: $PLUGIN_DIR (extensions/)"
 else
-    # v5.3/v5.6/v5.7: 检查是否已安装，未安装则自动安装
+    # v5.3/v5.6: 检查是否已安装，未安装则自动安装
     LOCAL_PLUGIN="$HOME/.openclaw/npm/node_modules/@larksuite/openclaw-lark"
     if [ ! -d "$LOCAL_PLUGIN" ]; then
         info "插件未安装，执行: openclaw plugins install @larksuite/openclaw-lark"
