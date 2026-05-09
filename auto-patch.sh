@@ -39,9 +39,10 @@ case "$OC_VER" in
     2026.5.2)   OC_MAJOR="5.2" ;;
     2026.5.3)   OC_MAJOR="5.3" ;;
     2026.5.6)   OC_MAJOR="5.6" ;;
+    2026.5.7)   OC_MAJOR="5.7" ;;
     *)
-        warn "未识别的版本 v$OC_VER，将尝试 v5.6 方式部署"
-        OC_MAJOR="5.6"
+        warn "未识别的版本 v$OC_VER，将尝试 v5.7 方式部署"
+        OC_MAJOR="5.7"
         ;;
 esac
 info "目标版本: OpenClaw v${OC_MAJOR}"
@@ -205,7 +206,20 @@ fi
 # ─── 4. 应用补丁 ──────────────────────────────────────────────────────────
 header "🩹 应用补丁"
 
-if [[ "$OC_MAJOR" == "5.6" ]]; then
+if [[ "$OC_MAJOR" == "5.7" ]]; then
+    # v5.7: 使用 patches/v5.7/ 补丁目录
+    info "v5.7 使用补丁模式..."
+    PATCH_COUNT=0
+    for patch_file in "$PATCH_DIR"/*.patch; do
+        [ -f "$patch_file" ] || continue
+        info "应用: $(basename "$patch_file")"
+        patch -d "$PLUGIN_DIR" -p4 --no-backup-if-mismatch -r- < "$patch_file" 2>/dev/null || {
+            warn "补丁 $(basename "$patch_file") 可能部分失败，继续..."
+        }
+        ((PATCH_COUNT++))
+    done
+    info "已应用 $PATCH_COUNT 个补丁"
+elif [[ "$OC_MAJOR" == "5.6" ]]; then
     # v5.6: 使用 src/ 完整覆盖模式（无独立 patches/v5.6/ 目录）
     info "v5.6 使用完整覆盖模式..."
     SRC_DIR="$SCRIPT_DIR/src"

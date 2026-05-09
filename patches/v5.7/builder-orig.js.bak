@@ -389,37 +389,26 @@ function buildCompleteCard(params) {
     // Footer meta-info: split into two lines for readability.
     // Line 1 (primary): status · elapsed · model
     // Line 2 (detail):  tokens · cache · context
-    // --- CUSTOM 6-LINE FOOTER ---
-    const fl = [];
-    const fmt = v => { if(!v&&v!==0)return '0'; const n=Number(v); return n>=1e8?(n/1e8).toFixed(2)+'亿': n>=1e7?(n/1e4).toFixed(1)+'万': n>=1e4?(n/1e4).toFixed(2)+'万': n>=1e3?(n/1e3).toFixed(1)+'k': n.toLocaleString(); };
-    const now = new Date();
-    const ts = `${now.getMonth()+1}/${now.getDate()}-${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    
-    fl.push(`🪙Token 今/月/总: ${fmt(footerMetrics?.todayTokens)}丨${fmt(footerMetrics?.monthTokens)}丨${fmt(footerMetrics?.totalTokensGlobal)} · ${ts}`);
-    fl.push('──────────────────');
-    
-    const st = isError?'❌ 出错':(isAborted?'⏹️ 已停止':'✅ 已完成');
-    const s = elapsedMs!=null?elapsedMs/1000:0;
-    const d = s<60?`${s.toFixed(1)}s`:`${Math.floor(s/60)}m ${Math.round(s%60)}s`;
-    const ft = footerMetrics?.firstTokenLatencyMs?(footerMetrics.firstTokenLatencyMs/1000).toFixed(2)+'s':'0s';
-    fl.push(`${st} · ⏳️ ${d} · 🚀首token ${ft} · ${footerMetrics?.model||'unknown'}`);
-    
-    const c = footerMetrics?.cost;
-    if(c&&c.total>0) fl.push(`💸 ¥${c.total} = 入¥${c.input} + 出¥${c.output} + 缓存¥${c.cache}`);
-    
-    const inT=fmt(footerMetrics?.inputTokens), outT=fmt(footerMetrics?.outputTokens);
-    const cr=typeof footerMetrics?.cacheRead==='number'?fmt(footerMetrics.cacheRead):'0';
-    const cw=typeof footerMetrics?.cacheWrite==='number'?fmt(footerMetrics.cacheWrite):'0';
-    const ch=(footerMetrics?.inputTokens||0)>0?Math.round(((footerMetrics.cacheRead||0)+(footerMetrics.cacheWrite||0))/footerMetrics.inputTokens*100):0;
-    const ct=typeof footerMetrics?.totalTokens==='number'?footerMetrics.totalTokens:(footerMetrics?.inputTokens||0)+(footerMetrics?.outputTokens||0);
-    const cx=typeof footerMetrics?.contextTokens==='number'?fmt(footerMetrics.contextTokens):'1.0m';
-    const cp=footerMetrics?.contextTokens>0?Math.round(ct/footerMetrics.contextTokens*100):0;
-    fl.push(`📑 ${fmt(ct)}/${cx} (${cp}%)·↑ ${inT} ↓ ${outT} · 缓存 ${cr}/${cw} (${ch}%)`);
-    
-    const b=footerMetrics?.balance;
-    if(b) fl.push(`💰 ${b.platform} ¥${b.amount}`);
-    
-    if(fl.length>0) elements.push(...buildFooter(fl.join('\\n'), fl.join('\\n'), isError));
+    const fp = formatFooterRuntimeSegments({
+        footer,
+        metrics: footerMetrics,
+        elapsedMs,
+        isError,
+        isAborted,
+    });
+    const footerZhLines = [];
+    const footerEnLines = [];
+    if (fp.primaryZh.length > 0) {
+        footerZhLines.push(fp.primaryZh.join(' · '));
+        footerEnLines.push(fp.primaryEn.join(' · '));
+    }
+    if (fp.detailZh.length > 0) {
+        footerZhLines.push(fp.detailZh.join(' · '));
+        footerEnLines.push(fp.detailEn.join(' · '));
+    }
+    if (footerZhLines.length > 0) {
+        elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
+    }
     // Use the answer text as the feed preview summary.
     // Strip markdown syntax so the preview reads as plain text.
     const summaryText = text.replace(/[*_`#>[\]()~]/g, '').trim();

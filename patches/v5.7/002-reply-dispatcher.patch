@@ -1,0 +1,12 @@
+--- package/src/card/reply-dispatcher-orig.js	2026-05-09 19:47:24.998580322 +0800
++++ package/src/card/reply-dispatcher.js	2026-05-09 19:48:07.944777141 +0800
+@@ -43,7 +43,8 @@
+     // ---- Reply mode resolution ----
+     const chatType = params.chatType;
+     const effectiveReplyMode = (0, reply_mode_1.resolveReplyMode)({ feishuCfg, chatType });
+-    const replyMode = (0, reply_mode_1.expandAutoMode)({
++    const replyMode = 'streaming'; // PATCH: Force streaming cards
++    // const replyMode = (0, reply_mode_1.expandAutoMode)({
+         mode: effectiveReplyMode,
+         streaming: feishuCfg?.streaming,
+         chatType,

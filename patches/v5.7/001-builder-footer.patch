@@ -1,0 +1,71 @@
+--- package/src/card/builder-orig.js	2026-05-09 19:47:24.998580322 +0800
++++ package/src/card/builder.js	2026-05-09 19:47:54.693717381 +0800
+@@ -386,29 +386,45 @@
+         tag: 'markdown',
+         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
+     });
+-    // Footer meta-info: split into two lines for readability.
+-    // Line 1 (primary): status · elapsed · model
+-    // Line 2 (detail):  tokens · cache · context
+-    const fp = formatFooterRuntimeSegments({
+-        footer,
+-        metrics: footerMetrics,
+-        elapsedMs,
+-        isError,
+-        isAborted,
+-    });
+-    const footerZhLines = [];
+-    const footerEnLines = [];
+-    if (fp.primaryZh.length > 0) {
+-        footerZhLines.push(fp.primaryZh.join(' · '));
+-        footerEnLines.push(fp.primaryEn.join(' · '));
+-    }
+-    if (fp.detailZh.length > 0) {
+-        footerZhLines.push(fp.detailZh.join(' · '));
+-        footerEnLines.push(fp.detailEn.join(' · '));
+-    }
+-    if (footerZhLines.length > 0) {
+-        elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
+-    }
++    // Footer meta-info: CUSTOM 6-LINE FOOTER
++    const fmt = v => { if(!v&&v!==0)return '0'; const n=Number(v); return n>=1e8?(n/1e8).toFixed(2)+'亿': n>=1e7?(n/1e4).toFixed(1)+'万': n>=1e4?(n/1e4).toFixed(2)+'万': n>=1e3?(n/1e3).toFixed(1)+'k': n.toLocaleString(); };
++    const fmtM = v => { if(!v&&v!==0)return '0'; const n=Number(v); return n>=1e9?(n/1e9).toFixed(2)+'B': n>=1e6?(n/1e6).toFixed(1)+'M': n>=1e3?(n/1e3).toFixed(1)+'k': n.toLocaleString(); };
++    
++    let totalTokensGlobal = footerMetrics?.totalTokens || 0;
++    let todayTokens = totalTokensGlobal;
++    let monthTokens = totalTokensGlobal;
++    
++    const now = new Date();
++    const ts = `${now.getMonth()+1}/${now.getDate()}-${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
++    
++    const fl = [];
++    fl.push(`🪙Token 今/月/总: ${fmtM(todayTokens)}丨${fmtM(monthTokens)}丨${fmtM(totalTokensGlobal)} · ${ts}`);
++    fl.push('──────────────────');
++    
++    const st = isError?'❌ 出错':(isAborted?'⏹️ 已停止':'✅ 已完成');
++    const s = elapsedMs!=null?elapsedMs/1000:0;
++    const d = s<60?`${s.toFixed(1)}s`:`${Math.floor(s/60)}m ${Math.round(s%60)}s`;
++    const ft = footerMetrics?.firstTokenLatencyMs?(footerMetrics.firstTokenLatencyMs/1000).toFixed(2)+'s':'0s';
++    fl.push(`${st} · ⏳️ ${d} · 🚀首token ${ft} · ${footerMetrics?.model||'unknown'}`);
++    
++    const cost = footerMetrics?.cost;
++    if(cost && cost.total>0) fl.push(`💸 ¥${cost.total} = 入¥${cost.input} + 出¥${cost.output} + 缓存¥${cost.cache}`);
++    else if(cost) fl.push(`💸 ¥0 = 入¥0 + 出¥0 + 缓存¥0`);
++    
++    const inT=fmt(footerMetrics?.inputTokens), outT=fmt(footerMetrics?.outputTokens);
++    const cr=typeof footerMetrics?.cacheRead==='number'?fmt(footerMetrics.cacheRead):'0';
++    const cw=typeof footerMetrics?.cacheWrite==='number'?fmt(footerMetrics.cacheWrite):'0';
++    const ch=(footerMetrics?.inputTokens||0)>0?Math.round(((footerMetrics.cacheRead||0)+(footerMetrics.cacheWrite||0))/footerMetrics.inputTokens*100):0;
++    const ct=typeof footerMetrics?.totalTokens==='number'?footerMetrics.totalTokens:(footerMetrics?.inputTokens||0)+(footerMetrics?.outputTokens||0);
++    const cx=typeof footerMetrics?.contextTokens==='number'?fmt(footerMetrics.contextTokens):'1.0m';
++    const cp=footerMetrics?.contextTokens>0?Math.round(ct/footerMetrics.contextTokens*100):0;
++    fl.push(`📑 ${fmt(ct)}/${cx} (${cp}%)·↑ ${inT} ↓ ${outT} · 缓存 ${cr}/${cw} (${ch}%)`);
++    
++    const b=footerMetrics?.balance;
++    if(b) fl.push(`💰 ${b.platform} ¥${b.amount}`);
++    else fl.push(`💰 阿里百炼 ¥0`);
++    
++    if(fl.length>0) elements.push(...buildFooter(fl.join('\n'), fl.join('\n'), isError));
+     // Use the answer text as the feed preview summary.
+     // Strip markdown syntax so the preview reads as plain text.
+     const summaryText = text.replace(/[*_`#>[\]()~]/g, '').trim();
