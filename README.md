@@ -15,12 +15,13 @@
 
 为避免混淆，本文档使用以下命名规则：
 
-| 简称 | 全称 | 说明 |
-|------|------|------|
-| **OpenClaw `v5.2` ~ `v5.7`** | **OpenClaw 核心** `v2026.5.2` ~ `v2026.5.7` | 通过 `openclaw --version` 查看 |
-| **插件 `v2026.x.x`** | **`@larksuite/openclaw-lark@2026.x.x`** | 飞书插件包版本 |
-| **补丁 `patches/v5.7/`** | 适配 OpenClaw v2026.5.7 的补丁文件 | 目录名中的 `v5.7` 对应 **OpenClaw 核心** 版本 |
-| **Hermes `v2026.5.7`** | **Hermes Agent** 版本标签 | ⚠️ 与本项目**无关**！Hermes 和 OpenClaw 是两个独立项目 |
+| 简称 | 全称 | 安装方式 | 说明 |
+|------|------|----------|------|
+| **OpenClaw `v5.2` ~ `v5.7`** | **OpenClaw 核心** `v2026.5.2` ~ `v2026.5.7` | `openclaw --version` 查看 | 本文档中"v5.x"均指 OpenClaw 核心版本 |
+| **插件 `v2026.4.10`** | **`@larksuite/openclaw-lark@2026.4.10`** | `openclaw plugins install` | 适配 OpenClaw v5.3/v5.6 的旧版插件 |
+| **插件 `v2026.5.7`（推荐）** | **`@larksuite/openclaw-lark@2026.5.7`** | `npx -y @larksuite/openclaw-lark@2026.5.7 install --version 2026.5.7 --tools-version 1.0.43` | 适配 OpenClaw v5.7 的最新插件，安装到 `extensions/` 目录 |
+| **补丁 `patches/v5.7/`** | 适配 OpenClaw v2026.5.7 的补丁文件 | `patch -d "$PLUGIN_DIR" -p0 < patches/v5.7/xxx.patch` | 目录名中的 `v5.7` 对应 **OpenClaw 核心** 版本 |
+| **Hermes `v2026.5.7`** | **Hermes Agent** 版本标签 | — | ⚠️ 与本项目**无关**！Hermes 和 OpenClaw 是两个独立项目 |
 
 ## 🖥️ 基础环境说明
 
