@@ -100,34 +100,56 @@ info "已备份到 $BACKUP_DIR"
 header "🩹 应用补丁"
 
 if [[ "$OC_MAJOR" == "5.7" ]]; then
-    # v5.7: 使用 patches/v5.7/ 补丁
+    # v5.7: 优先尝试 patches/v5.7/ 补丁
+    # ⚠️ patches 可能与 v5.7 源码行号不匹配（streaming-card-controller.js 和 builder.js 有结构性变化）
+    # 如果补丁失败，自动回退到 src/ 完整覆盖
+    PATCH_OK=true
     if [ -d "$PATCH_DIR" ]; then
         PATCH_COUNT=0
         for patch_file in "$PATCH_DIR"/*.patch; do
             [ -f "$patch_file" ] || continue
-            info "应用: $(basename "$patch_file")"
-            # Patch paths in patches use format: src/card/builder.js (relative to plugin dir)
-            # -p0 keeps full path for direct application
+            info "尝试: $(basename "$patch_file")"
             if patch -d "$PLUGIN_DIR" -p0 --no-backup-if-mismatch -r- < "$patch_file" 2>/dev/null; then
                 ((PATCH_COUNT++))
             else
-                # Retry with -p1 if -p0 fails
                 if patch -d "$PLUGIN_DIR" -p1 --no-backup-if-mismatch -r- < "$patch_file" 2>/dev/null; then
                     ((PATCH_COUNT++))
                 else
-                    warn "补丁 $(basename "$patch_file") 应用失败，继续..."
+                    warn "补丁 $(basename "$patch_file") 失败"
+                    PATCH_OK=false
                 fi
             fi
         done
-        info "已应用 $PATCH_COUNT 个补丁"
+        if [ "$PATCH_COUNT" -gt 0 ]; then
+            info "已应用 $PATCH_COUNT 个补丁"
+        fi
     else
         warn "补丁目录不存在: $PATCH_DIR"
+        PATCH_OK=false
     fi
 
-    # 额外应用 reply-dispatcher 补丁（proactive card creation）
-    if [ -f "$PATCH_DIR/002-reply-dispatcher.patch" ]; then
-        info "应用 reply-dispatcher proactive card creation 补丁..."
-        patch -d "$PLUGIN_DIR" -p0 --no-backup-if-mismatch -r- < "$PATCH_DIR/002-reply-dispatcher.patch" 2>/dev/null || true
+    # 补丁失败 → 回退到 src/ 完整覆盖 + 手动补充
+    if [ "$PATCH_OK" != "true" ]; then
+        warn "补丁未完全应用，回退到 src/ 完整覆盖模式..."
+
+        # 4a. 覆盖 card/ 目录的核心文件
+        info "覆盖 src/card/ （builder.js + reply-dispatcher.js + streaming-card-controller.js）..."
+        cp "$SCRIPT_DIR/src/card/builder.js" "$PLUGIN_DIR/src/card/builder.js"
+        cp "$SCRIPT_DIR/src/card/reply-dispatcher.js" "$PLUGIN_DIR/src/card/reply-dispatcher.js"
+        cp "$SCRIPT_DIR/src/card/streaming-card-controller.js" "$PLUGIN_DIR/src/card/streaming-card-controller.js"
+
+        # 4b. 补充 event-bus.js（v5.7 移除了该文件！但 streaming-card-controller 依赖它）
+        # 如果没有 event-bus.js，require("../channel/event-bus.js") 会报 MODULE_NOT_FOUND
+        info "补充 src/channel/event-bus.js（v5.7 移除文件）..."
+        mkdir -p "$PLUGIN_DIR/src/channel/"
+        cp "$SCRIPT_DIR/src/channel/event-bus.js" "$PLUGIN_DIR/src/channel/event-bus.js"
+
+        # 4c. 替换 gate.js（实现群聊免 @ 回复 + requireMention/groupPolicy 配置继承）
+        info "替换 gate.js（群聊放行策略）..."
+        mkdir -p "$PLUGIN_DIR/src/messaging/inbound/"
+        cp "$SCRIPT_DIR/src/messaging/inbound/gate.js" "$PLUGIN_DIR/src/messaging/inbound/gate.js"
+
+        info "✅ v5.7 完整覆盖完成（含 event-bus.js + gate.js）"
     fi
 
 elif [[ "$OC_MAJOR" == "5.6" ]]; then
@@ -294,25 +316,39 @@ echo -e "  ${BOLD}插件路径:${NC}     $PLUGIN_DIR"
 echo -e "  ${BOLD}备份位置:${NC}     $BACKUP_DIR"
 echo ""
 
-# 验证 Footer 补丁是否生效
-if grep -q "CUSTOM 6-LINE FOOTER\|fl.push" "$PLUGIN_DIR/src/card/builder.js" 2>/dev/null; then
+# 验证 Footer 补丁是否生效（先检查 card 文件）
+if grep -q "CUSTOM 6-LINE FOOTER\\|fl.push\\|🪙" "$PLUGIN_DIR/src/card/builder.js" 2>/dev/null; then
     info "✅ Footer 6-LINE 补丁已生效"
 else
     warn "⚠️  Footer 补丁可能未生效"
 fi
 
 # 验证 reply-dispatcher 补丁
-if grep -q "proactive card creation" "$PLUGIN_DIR/src/card/reply-dispatcher.js" 2>/dev/null; then
+if grep -q "proactive card creation\\|ensureCardCreated" "$PLUGIN_DIR/src/card/reply-dispatcher.js" 2>/dev/null; then
     info "✅ Proactive card creation 补丁已生效"
 else
     warn "⚠️  Proactive card creation 补丁可能未生效"
 fi
 
 # 验证 first-token latency 补丁
-if grep -q "4b) Capture first content time" "$PLUGIN_DIR/src/card/streaming-card-controller.js" 2>/dev/null; then
+if grep -q "firstContentTime\\|_firstContentTime" "$PLUGIN_DIR/src/card/streaming-card-controller.js" 2>/dev/null; then
     info "✅ First-token latency 补丁已生效"
 else
     warn "⚠️  First-token latency 补丁可能未生效"
+fi
+
+# 验证 event-bus.js 是否存在（v5.7 需手动补充）
+if [ -f "$PLUGIN_DIR/src/channel/event-bus.js" ]; then
+    info "✅ event-bus.js 已存在"
+else
+    warn "⚠️  event-bus.js 缺失（v5.7 需手动补充 src/channel/event-bus.js）"
+fi
+
+# 验证 gate.js 是否有群聊放行逻辑
+if grep -q "requireMention\\|groupPolicy" "$PLUGIN_DIR/src/messaging/inbound/gate.js" 2>/dev/null; then
+    info "✅ gate.js 群聊放行逻辑已生效"
+else
+    warn "⚠️  gate.js 可能缺失群聊放行逻辑"
 fi
 
 # 验证 allTimeTokens 补丁
@@ -345,7 +381,8 @@ echo ""
 info "${BOLD}部署完成！${NC}在飞书群聊发消息测试卡片 footer。"
 echo ""
 echo -e "  ${YELLOW}注意事项:${NC}"
-echo "  - 如 footer 不显示，确认 openclaw.json 中 messages.visibleReplies = \"automatic\""
-echo "  - 如群聊无回复，确认 channels.feishu.replyMode.group = \"streaming\""
-echo "  - 检查日志: journalctl --user -u openclaw-gateway --no-pager -n 50"
+echo "  - 如 footer 不显示，确认 channels.feishu 下有 footer 配置（或检查 builder.js 是否覆盖成功）"
+echo "  - 如群聊无回复，确认 channels.feishu 下有 groupPolicy/requireMention 配置"
+echo "  - npx install 会覆盖 openclaw.json！安装后需恢复自定义配置（groupPolicy/footer/streaming 等）"
+echo "  - 检查飞书 WebSocket: grep -E 'feishu.*WebSocket.*started' /tmp/openclaw-1000/openclaw-*.log"
 echo ""
