@@ -241,17 +241,7 @@ function formatFooterRuntimeSegments(params) {
         }
     }
     // --- Detail line 1: tokens, cache, cost ---
-    const showTokens = showGlobalTokens !== false;
-    if (showTokens && metrics) {
-        const inTokens = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
-        const outTokens = typeof metrics.outputTokens === 'number' ? Math.max(0, metrics.outputTokens) : undefined;
-        if (inTokens != null && outTokens != null) {
-            const inLabel = compactNumber(inTokens);
-            const outLabel = compactNumber(outTokens);
-            detailZh.push(`↑ ${inLabel} ↓ ${outLabel}`);
-            detailEn.push(`↑ ${inLabel} ↓ ${outLabel}`);
-        }
-    }
+    // Token counts moved to context section below with "累计" label
     if (footer?.cache && metrics) {
         const read = typeof metrics.cacheRead === 'number' ? Math.max(0, metrics.cacheRead) : undefined;
         const write = typeof metrics.cacheWrite === 'number' ? Math.max(0, metrics.cacheWrite) : undefined;
@@ -278,27 +268,34 @@ function formatFooterRuntimeSegments(params) {
         detailZh.push(`🚀首token ${sec}s`);
         detailEn.push(`🚀 First token ${sec}s`);
     }
-    // --- Detail line 2 (separate line): context window ---
+    // --- Detail line 2 (separate line): context window + tokens ---
     if (footer?.context && metrics) {
-        let total;
+        // 📑: 本次请求上下文用量（current totalTokens, 能涨能跌）
+        // ↑↓: 会话累计输入/输出（lifetime in/out, 只增不降）
+        let curTotal;
         if (typeof metrics.totalTokens === 'number' && metrics.totalTokens > 0) {
-            total = metrics.totalTokens;
-        }
-        else if (typeof metrics.inputTokens === 'number' && metrics.inputTokens >= 0) {
-            total = metrics.inputTokens;
+            curTotal = metrics.totalTokens;
         }
         else {
-            total = 0;
+            const hi = typeof metrics.inputTokens === 'number' ? metrics.inputTokens : 0;
+            const ho = typeof metrics.outputTokens === 'number' ? metrics.outputTokens : 0;
+            curTotal = hi + ho;
         }
-        total = Math.max(0, total);
+        curTotal = Math.max(0, curTotal);
         const ctx = typeof metrics.contextTokens === 'number' ? Math.max(0, metrics.contextTokens) : undefined;
         if (ctx != null) {
-            const totalLabel = compactNumber(total);
+            const curLabel = compactNumber(curTotal);
             const ctxLabel = compactNumber(ctx);
-            const pct = ctx > 0 ? Math.round((total / ctx) * 100) : 0;
-            const pctLabel = `${pct}%`;
-            contextZh.push(`📑 ${totalLabel}/${ctxLabel} (${pctLabel})`);
-            contextEn.push(`📑 ${totalLabel}/${ctxLabel} (${pctLabel})`);
+            const pct = ctx > 0 ? Math.round((curTotal / ctx) * 100) : 0;
+            contextZh.push(`📑 本次 ${curLabel}/${ctxLabel} (${pct}%)`);
+            contextEn.push(`📑 cur ${curLabel}/${ctxLabel} (${pct}%)`);
+        }
+        // 累计 ↑↓ 加 label 区分
+        const inTokens = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
+        const outTokens = typeof metrics.outputTokens === 'number' ? Math.max(0, metrics.outputTokens) : undefined;
+        if (inTokens != null && outTokens != null) {
+            contextZh.push(`累计 ↑ ${compactNumber(inTokens)} ↓ ${compactNumber(outTokens)}`);
+            contextEn.push(`lifetime ↑ ${compactNumber(inTokens)} ↓ ${compactNumber(outTokens)}`);
         }
     }
     // --- Daily token line: 🪙 Token今/月 (read from token-stats.json) ---
@@ -546,12 +543,12 @@ function buildCompleteCard(params) {
     const ctxMax = footerMetrics?.contextTokens || 0;
     if (ctxMax > 0) {
         const pct = Math.round((ctxUsed/ctxMax)*100);
-        l5.push(`📑 ${fmtK(ctxUsed)}/${fmtK(ctxMax)} (${pct}%)`);
+        l5.push(`📑 本次 ${fmtK(ctxUsed)}/${fmtK(ctxMax)} (${pct}%)`);
     }
     const iTk = footerMetrics?.inputTokens;
     const oTk = footerMetrics?.outputTokens;
     if (iTk != null && oTk != null) {
-        l5.push(`↑ ${fmtK(iTk)} ↓ ${fmtK(oTk)}`);
+        l5.push(`累计 ↑ ${fmtK(iTk)} ↓ ${fmtK(oTk)}`);
     }
     const cR = footerMetrics?.cacheRead;
     // If cacheWrite is not tracked (always 0 from session store), compute from current turn
