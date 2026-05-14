@@ -14,10 +14,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.StreamingCardController = void 0;
 exports.prepareTerminalCardContent = prepareTerminalCardContent;
-const fs_1 = require("node:fs");
 const promises_1 = require("node:fs/promises");
 const agent_runtime_1 = require("openclaw/plugin-sdk/agent-runtime");
-const config_runtime_1 = require("openclaw/plugin-sdk/config-runtime");
 const reply_runtime_1 = require("openclaw/plugin-sdk/reply-runtime");
 const api_error_1 = require("../core/api-error.js");
 const lark_logger_1 = require("../core/lark-logger.js");
@@ -32,117 +30,9 @@ const image_resolver_1 = require("./image-resolver.js");
 const markdown_style_1 = require("./markdown-style.js");
 const tool_use_display_1 = require("./tool-use-display.js");
 const tool_use_trace_store_1 = require("./tool-use-trace-store.js");
-const event_bus_1 = require("../channel/event-bus.js");
 const reply_dispatcher_types_1 = require("./reply-dispatcher-types.js");
 const unavailable_guard_1 = require("./unavailable-guard.js");
 const log = (0, lark_logger_1.larkLogger)('card/streaming');
-// ---------------------------------------------------------------------------
-// Token / metrics helpers
-// ---------------------------------------------------------------------------
-function computeTranscriptTokenTotals(sessionFile) {
-    if (!sessionFile)
-        return undefined;
-    try {
-        if (!(0, fs_1.existsSync)(sessionFile))
-            return undefined;
-        const content = (0, fs_1.readFileSync)(sessionFile, 'utf8');
-        const lines = content.split('\n');
-        let input = 0, output = 0;
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed)
-                continue;
-            let entry;
-            try {
-                entry = JSON.parse(trimmed);
-            }
-            catch { continue; }
-            if (!entry || typeof entry !== 'object')
-                continue;
-            const usage = entry?.message?.usage ?? entry?.usage;
-            if (!usage || typeof usage !== 'object')
-                continue;
-            const i = typeof usage.input === 'number' ? usage.input
-                : typeof usage.input_tokens === 'number' ? usage.input_tokens : 0;
-            const o = typeof usage.output === 'number' ? usage.output
-                : typeof usage.output_tokens === 'number' ? usage.output_tokens : 0;
-            if (i > 0 || o > 0) {
-                input += i;
-                output += o;
-            }
-        }
-        if (input > 0 || output > 0)
-            return { input, output };
-    }
-    catch { /* fall through */ }
-    return undefined;
-}
-function extractAgentIdFromSessionKey(sessionKey) {
-    const match = sessionKey.trim().toLowerCase().match(/^agent:([^:]+):/);
-    return match?.[1];
-}
-function collectFooterMetrics(entry, extra) {
-    const inT = typeof entry.inputTokens === 'number' ? entry.inputTokens : undefined;
-    const outT = typeof entry.outputTokens === 'number' ? entry.outputTokens : undefined;
-    const totalT = typeof entry.totalTokens === 'number' ? entry.totalTokens
-        : (inT != null || outT != null) ? (inT || 0) + (outT || 0) : undefined;
-    return {
-        inputTokens: inT,
-        outputTokens: outT,
-        cacheRead: typeof entry.cacheRead === 'number' ? entry.cacheRead : undefined,
-        cacheWrite: typeof entry.cacheWrite === 'number' ? entry.cacheWrite : undefined,
-        totalTokens: totalT,
-        totalTokensFresh: typeof entry.totalTokensFresh === 'boolean' ? entry.totalTokensFresh : undefined,
-        contextTokens: typeof entry.contextTokens === 'number' ? entry.contextTokens : undefined,
-        model: typeof entry.model === 'string' ? entry.model : undefined,
-        firstTokenLatencyMs: extra?.firstTokenLatencyMs ?? entry.firstTokenLatencyMs,
-    };
-}
-function resolveContextWindowFromConfig(cfg, modelName) {
-    try {
-        const providers = cfg?.models?.providers;
-        if (!providers || !modelName)
-            return undefined;
-        for (const provider of Object.values(providers)) {
-            if (!provider?.models)
-                continue;
-            for (const m of provider.models) {
-                if (!m?.id)
-                    continue;
-                if (m.id === modelName || modelName.endsWith('/' + m.id)
-                    || m.id.endsWith('/' + modelName) || modelName.includes(m.id)) {
-                    const ctx = typeof m.contextWindow === 'number' ? m.contextWindow
-                        : typeof m.contextTokens === 'number' ? m.contextTokens : undefined;
-                    if (ctx && ctx > 0)
-                        return ctx;
-                }
-            }
-        }
-    }
-    catch { /* ignore */ }
-    return undefined;
-}
-function resolveModelPrices(cfg, modelName) {
-    try {
-        const providers = cfg?.models?.providers;
-        if (!providers || !modelName) return {};
-        for (const provider of Object.values(providers)) {
-            if (!provider?.models) continue;
-            for (const m of provider.models) {
-                if (!m?.id || !m?.cost) continue;
-                if (m.id === modelName || modelName.endsWith('/' + m.id)
-                    || m.id.endsWith('/' + modelName) || modelName.includes(m.id)) {
-                    return {
-                        inputPrice: typeof m.cost.input === 'number' ? m.cost.input : undefined,
-                        outputPrice: typeof m.cost.output === 'number' ? m.cost.output : undefined,
-                        cacheReadPrice: typeof m.cost.cacheRead === 'number' ? m.cost.cacheRead : undefined,
-                    };
-                }
-            }
-        }
-    } catch { /* ignore */ }
-    return {};
-}
 // ---------------------------------------------------------------------------
 // StreamingCardController
 // ---------------------------------------------------------------------------
@@ -198,6 +88,9 @@ class StreamingCardController {
     }
     async getFooterSessionMetrics() {
         try {
+            const runtime = lark_client_1.LarkClient.runtime;
+            if (!runtime)
+                return undefined;
             const cfgWithSession = this.deps.cfg;
             const sessionStorePath = cfgWithSession.sessions?.store ?? cfgWithSession.session?.store;
             const key = this.deps.sessionKey.trim().toLowerCase();
@@ -214,11 +107,10 @@ class StreamingCardController {
             const defaultAgentId = (0, agent_runtime_1.resolveDefaultAgentId)(this.deps.cfg);
             const fallbackKey = key.replace(/^(agent):[^:]+:/, `$1:${defaultAgentId}:`);
             const candidateKeys = fallbackKey !== key ? [key, fallbackKey] : [key];
-            // Primary path: config-runtime SDK (resolveStorePath + loadSessionStore)
-            const sdk = config_runtime_1;
-            if (sdk?.resolveStorePath && sdk?.loadSessionStore) {
-                const storePath = sdk.resolveStorePath(sessionStorePath);
-                const store = sdk.loadSessionStore(storePath);
+            const sessionApi = runtime.agent?.session;
+            if (sessionApi?.resolveStorePath && sessionApi?.loadSessionStore) {
+                const storePath = sessionApi.resolveStorePath(sessionStorePath, { agentId: this.deps.agentId });
+                const store = sessionApi.loadSessionStore(storePath);
                 let entry;
                 let matchedKey;
                 for (const candidate of candidateKeys) {
@@ -234,56 +126,34 @@ class StreamingCardController {
                         sessionKey: this.deps.sessionKey,
                         candidateKeys,
                         storePath,
-                        source: 'config-runtime',
+                        source: 'runtime.agent.session',
                     });
                     return undefined;
                 }
-                const metrics = collectFooterMetrics(entry, { firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined });
+                const metrics = {
+                    inputTokens: typeof entry.inputTokens === 'number' ? entry.inputTokens : undefined,
+                    outputTokens: typeof entry.outputTokens === 'number' ? entry.outputTokens : undefined,
+                    cacheRead: typeof entry.cacheRead === 'number' ? entry.cacheRead : undefined,
+                    cacheWrite: typeof entry.cacheWrite === 'number' ? entry.cacheWrite : undefined,
+                    totalTokens: typeof entry.totalTokens === 'number' ? entry.totalTokens : undefined,
+                    totalTokensFresh: typeof entry.totalTokensFresh === 'boolean' ? entry.totalTokensFresh : undefined,
+                    contextTokens: typeof entry.contextTokens === 'number' ? entry.contextTokens : undefined,
+                    model: typeof entry.model === 'string' ? entry.model : undefined,
+                    firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined,
+                };
                 log.debug('footer metrics lookup: session entry found', {
                     sessionKey: this.deps.sessionKey,
                     matchedKey,
                     storePath,
-                    source: 'config-runtime',
+                    source: 'runtime.agent.session',
                 });
                 return metrics;
             }
-            // Fallback path: resolveSessionStoreEntry dual candidate
-            if (sdk?.resolveSessionStoreEntry) {
-                let entry;
-                let matchedKey;
-                for (const candidate of candidateKeys) {
-                    const val = sdk.resolveSessionStoreEntry(sessionStorePath, candidate);
-                    if (val && typeof val === 'object') {
-                        entry = val;
-                        matchedKey = candidate;
-                        break;
-                    }
-                }
-                if (!entry) {
-                    log.debug('footer metrics lookup: session entry missing', {
-                        sessionKey: this.deps.sessionKey,
-                        candidateKeys,
-                        source: 'config-runtime.resolveSessionStoreEntry',
-                    });
-                    return undefined;
-                }
-                const metrics = collectFooterMetrics(entry, { firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined });
-                log.debug('footer metrics lookup: session entry found', {
-                    sessionKey: this.deps.sessionKey,
-                    matchedKey,
-                    source: 'config-runtime.resolveSessionStoreEntry',
-                });
-                return metrics;
-            }
-            // Legacy fallback: lark-client runtime.channel.session
-            const runtime = lark_client_1.LarkClient.runtime;
-            if (!runtime)
-                return undefined;
             const channelSession = runtime.channel?.session;
             if (!channelSession?.resolveStorePath) {
                 return undefined;
             }
-            const storePath = channelSession.resolveStorePath(sessionStorePath);
+            const storePath = channelSession.resolveStorePath(sessionStorePath, { agentId: this.deps.agentId });
             const raw = await (0, promises_1.readFile)(storePath, 'utf8');
             const parsed = JSON.parse(raw);
             const store = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -308,7 +178,17 @@ class StreamingCardController {
                 });
                 return undefined;
             }
-            const metrics = collectFooterMetrics(entry, { firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined });
+            const metrics = {
+                inputTokens: typeof entry.inputTokens === 'number' ? entry.inputTokens : undefined,
+                outputTokens: typeof entry.outputTokens === 'number' ? entry.outputTokens : undefined,
+                cacheRead: typeof entry.cacheRead === 'number' ? entry.cacheRead : undefined,
+                cacheWrite: typeof entry.cacheWrite === 'number' ? entry.cacheWrite : undefined,
+                totalTokens: typeof entry.totalTokens === 'number' ? entry.totalTokens : undefined,
+                totalTokensFresh: typeof entry.totalTokensFresh === 'boolean' ? entry.totalTokensFresh : undefined,
+                contextTokens: typeof entry.contextTokens === 'number' ? entry.contextTokens : undefined,
+                model: typeof entry.model === 'string' ? entry.model : undefined,
+                firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined,
+            };
             log.debug('footer metrics lookup: session entry found', {
                 sessionKey: this.deps.sessionKey,
                 matchedKey,
@@ -321,126 +201,6 @@ class StreamingCardController {
             log.warn('footer metrics lookup failed', { error: String(err), sessionKey: this.deps.sessionKey });
             return undefined;
         }
-    }
-    _publishTokenEvent() {
-        if (!this.deps.sessionKey || !this.deps.cfg)
-            return;
-        try {
-            const cfgWithSession = this.deps.cfg;
-            const sessionStorePath = cfgWithSession.sessions?.store ?? cfgWithSession.session?.store;
-            if (!sessionStorePath)
-                return;
-            const agentId = extractAgentIdFromSessionKey(this.deps.sessionKey);
-            if (!agentId)
-                return;
-            const key = this.deps.sessionKey.trim().toLowerCase();
-            // 1) Try transcript file for token totals
-            const agentSessionDir = typeof sessionStorePath === 'string'
-                ? sessionStorePath
-                    .replace('{agentDir}', require('path').join(require('os').homedir(), '.openclaw', 'agents'))
-                    .replace('{agentId}', agentId)
-                : sessionStorePath;
-            let transcriptFile;
-            try {
-                const sdk = config_runtime_1;
-                if (sdk?.resolveStorePath) {
-                    transcriptFile = sdk.resolveStorePath(agentSessionDir + '/transcript.jsonl');
-                }
-            }
-            catch { /* ignore */ }
-            if (!transcriptFile) {
-                transcriptFile = agentSessionDir + '/transcript.jsonl';
-            }
-            const transcriptTotals = computeTranscriptTokenTotals(transcriptFile);
-            // 2) Try session store entry for per-turn tokens + model
-            let entryTokens;
-            let entryModel;
-            try {
-                const sdk = config_runtime_1;
-                if (sdk?.resolveStorePath && sdk?.loadSessionStore) {
-                    const storePath = sdk.resolveStorePath(sessionStorePath);
-                    const store = sdk.loadSessionStore(storePath);
-                    const val = store[key];
-                    if (val && typeof val === 'object') {
-                        entryTokens = {
-                            input: typeof val.inputTokens === 'number' ? val.inputTokens : undefined,
-                            output: typeof val.outputTokens === 'number' ? val.outputTokens : undefined,
-                        };
-                        entryModel = typeof val.model === 'string' ? val.model : undefined;
-                    }
-                }
-                else if (sdk?.resolveSessionStoreEntry) {
-                    const val = sdk.resolveSessionStoreEntry(sessionStorePath, key);
-                    if (val && typeof val === 'object') {
-                        entryTokens = {
-                            input: typeof val.inputTokens === 'number' ? val.inputTokens : undefined,
-                            output: typeof val.outputTokens === 'number' ? val.outputTokens : undefined,
-                        };
-                        entryModel = typeof val.model === 'string' ? val.model : undefined;
-                    }
-                }
-            }
-            catch { /* ignore */ }
-            // 4) Merge transcript totals with entry tokens
-            const totalInput = transcriptTotals?.input ?? entryTokens?.input;
-            const totalOutput = transcriptTotals?.output ?? entryTokens?.output;
-            // 4b) Capture first content time (also set by onPartialReply/onReasoningStream)
-            if (this._firstContentTime === null && (totalInput > 0 || totalOutput > 0)) {
-                this._firstContentTime = Date.now();
-            }
-            // Compute first-token latency
-            const firstTokenLatencyMs = this._firstContentTime
-            // 5) Compute delta from last published event
-            const delta = this._lastTokenEvent
-                ? {
-                    input: typeof totalInput === 'number' && typeof this._lastTokenEvent.input === 'number'
-                        ? totalInput - this._lastTokenEvent.input : undefined,
-                    output: typeof totalOutput === 'number' && typeof this._lastTokenEvent.output === 'number'
-                        ? totalOutput - this._lastTokenEvent.output : undefined,
-                }
-                : undefined;
-            const eventPayload = {
-                inputTokens: totalInput,
-                outputTokens: totalOutput,
-                model: entryModel,
-                firstTokenLatencyMs,
-                deltaInput: delta?.input,
-                deltaOutput: delta?.output,
-                contextWindow: resolveContextWindowFromConfig(this.deps.cfg, entryModel),
-                timestamp: Date.now(),
-            };
-            // Publish via tool-use trace store or log
-            try {
-                const publishTarget = (0, tool_use_trace_store_1.getToolUseTraceStore)?.();
-                if (publishTarget?.emitTokenEvent) {
-                    publishTarget.emitTokenEvent(this.deps.sessionKey, eventPayload);
-                }
-                else {
-                    log.info('token event', { sessionKey: this.deps.sessionKey, eventPayload });
-                }
-            }
-            catch { /* ignore */ }
-            // Publish via event-bus for TokenAggregator
-            try {
-                const tokens = (typeof totalInput === 'number' ? totalInput : 0) + (typeof totalOutput === 'number' ? totalOutput : 0);
-                const deltaInput = delta?.input;
-                const deltaOutput = delta?.output;
-                const deltaTokens = (typeof deltaInput === 'number' ? deltaInput : 0) + (typeof deltaOutput === 'number' ? deltaOutput : 0);
-                (0, event_bus_1.publish)('session_tokens_accrued', {
-                    tokens: deltaTokens > 0 ? deltaTokens : tokens,
-                    inputTokens: totalInput,
-                    outputTokens: totalOutput,
-                    sessionKey: this.deps.sessionKey,
-                    timestamp: new Date().toISOString(),
-                });
-            }
-            catch { /* ignore */ }
-            this._lastTokenEvent = {
-                input: totalInput,
-                output: totalOutput,
-            };
-        }
-        catch { /* ignore */ }
     }
     constructor(deps) {
         this.deps = deps;
@@ -599,13 +359,11 @@ class StreamingCardController {
     async onDeliver(payload) {
         if (!this.shouldProceed('onDeliver'))
             return;
-        // Capture first content time on first deliver (for non-streaming path)
-        if (this._firstContentTime === null) {
-            this._firstContentTime = Date.now();
-        }
         const text = payload.text ?? '';
         if (!text.trim())
             return;
+        if (this._firstContentTime === null)
+            this._firstContentTime = Date.now();
         await this.ensureCardCreated();
         if (!this.shouldProceed('onDeliver.postCreate'))
             return;
@@ -748,7 +506,6 @@ class StreamingCardController {
             return;
         log.error(`${info.kind} reply failed`, { error: String(err) });
         this.captureToolUseElapsed();
-        this._publishTokenEvent();
         this.finalizeCard('onError', 'error');
         await this.flush.waitForFlush();
         if (this.cardCreationPromise)
@@ -777,8 +534,6 @@ class StreamingCardController {
                     isError: true,
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
-                    showGlobalTokens: true,
-                    ...resolveModelPrices(this.deps.cfg, footerMetrics?.model),
                 });
                 if (errorEffectiveCardId) {
                     await this.closeStreamingAndUpdate(errorEffectiveCardId, errorCard, 'onError');
@@ -808,7 +563,6 @@ class StreamingCardController {
         if (this.isTerminalPhase)
             return;
         this.captureToolUseElapsed();
-        this._publishTokenEvent();
         this.finalizeCard('onIdle', 'normal');
         await this.flush.waitForFlush();
         if (this.cardCreationPromise) {
@@ -847,7 +601,15 @@ class StreamingCardController {
                     reasoningText: this.reasoning.accumulatedReasoningText || undefined,
                 }, this.imageResolver);
                 const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
-                const modelPrices = resolveModelPrices(this.deps.cfg, footerMetrics?.model);
+                // Resolve model prices from config for cost breakdown in footer
+                const modelPrices = (() => {
+                    try { const c = this.deps.cfg; const m = footerMetrics?.model; if (!c?.models?.providers || !m) return {};
+                    for (const p of Object.values(c.models.providers)) { if (!p?.models) continue;
+                    for (const v of p.models) { if (!v?.id || !v?.cost) continue;
+                    if (v.id === m || m.endsWith('/'+v.id) || v.id.endsWith('/'+m) || m.includes(v.id))
+                    return { inputPrice: typeof v.cost.input==='number'?v.cost.input:undefined, outputPrice: typeof v.cost.output==='number'?v.cost.output:undefined, cacheReadPrice: typeof v.cost.cacheRead==='number'?v.cost.cacheRead:undefined };
+                    } } return {}; } catch { return {}; }
+                })();
                 const completeCard = (0, builder_1.buildCardContent)('complete', {
                     text: terminalContent.text,
                     reasoningText: terminalContent.reasoningText,
@@ -859,7 +621,6 @@ class StreamingCardController {
                     elapsedMs: this.elapsed(),
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
-                    showGlobalTokens: true,
                     ...modelPrices,
                 });
                 if (idleEffectiveCardId) {
@@ -911,7 +672,6 @@ class StreamingCardController {
     async abortCard() {
         try {
             this.captureToolUseElapsed();
-            this._publishTokenEvent();
             if (!this.transition('aborted', 'abortCard', 'abort'))
                 return;
             // transition() already executed onEnterTerminalPhase (cancel + complete + dispose hook)
@@ -940,8 +700,6 @@ class StreamingCardController {
                     isAborted: true,
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
-                    showGlobalTokens: true,
-                    ...resolveModelPrices(this.deps.cfg, footerMetrics?.model),
                 });
                 await this.closeStreamingAndUpdate(effectiveCardId, abortCardContent, 'abortCard');
                 log.info('abortCard completed', { effectiveCardId });
@@ -960,8 +718,6 @@ class StreamingCardController {
                     isAborted: true,
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
-                    showGlobalTokens: true,
-                    ...resolveModelPrices(this.deps.cfg, footerMetrics?.model),
                 });
                 await (0, send_1.updateCardFeishu)({
                     cfg: this.deps.cfg,

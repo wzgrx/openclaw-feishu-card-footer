@@ -33,7 +33,7 @@ const log = (0, lark_logger_1.larkLogger)('card/reply-dispatcher');
 // ---------------------------------------------------------------------------
 function createFeishuReplyDispatcher(params) {
     const core = lark_client_1.LarkClient.runtime;
-    const { cfg, agentId, chatId, sessionKey, replyToMessageId, accountId, replyInThread } = params;
+    const { cfg, agentId, chatId, sessionKey, replyToMessageId, accountId, replyInThread, threadId } = params;
     // Resolve account so we can read per-account config (e.g. replyMode)
     const account = (0, accounts_1.getLarkAccount)(cfg, accountId);
     const feishuCfg = account.config;
@@ -78,6 +78,7 @@ function createFeishuReplyDispatcher(params) {
     const controller = useStreamingCards
         ? new streaming_card_controller_1.StreamingCardController({
             cfg,
+            agentId,
             sessionKey,
             accountId,
             chatId,
@@ -232,7 +233,7 @@ function createFeishuReplyDispatcher(params) {
             }
             // ---- Static text delivery ----
             if (text.trim()) {
-                if (feishuCfg?.renderMode === 'card' || (0, reply_mode_1.shouldUseCard)(text)) {
+                if ((0, reply_mode_1.shouldUseCard)(text)) {
                     const chunks = core.channel.text.chunkTextWithMode(text, textChunkLimit, chunkMode);
                     log.info('deliver: sending card chunks', {
                         count: chunks.length,
@@ -251,6 +252,7 @@ function createFeishuReplyDispatcher(params) {
                                     replyToMessageId,
                                     replyInThread,
                                     accountId,
+                                    threadId,
                                 });
                             }
                             catch (fallbackErr) {
@@ -285,6 +287,7 @@ function createFeishuReplyDispatcher(params) {
                                         replyToMessageId,
                                         replyInThread,
                                         accountId,
+                                        threadId,
                                     });
                                 }
                                 catch (fallbackErr) {
@@ -314,6 +317,7 @@ function createFeishuReplyDispatcher(params) {
                                 replyToMessageId,
                                 replyInThread,
                                 accountId,
+                                threadId,
                             });
                         }
                         catch (err) {
