@@ -202,6 +202,34 @@ class StreamingCardController {
             return undefined;
         }
     }
+    /**
+     * Publish token usage via event-bus for TokenAggregator to accumulate.
+     * Called from onIdle / onError after footer metrics are resolved.
+     */
+    _publishTokenEvent(metrics) {
+        if (!this.deps.sessionKey || !metrics)
+            return;
+        const inT = typeof metrics.inputTokens === 'number' ? metrics.inputTokens : 0;
+        const outT = typeof metrics.outputTokens === 'number' ? metrics.outputTokens : 0;
+        const totalT = inT + outT;
+        if (totalT <= 0)
+            return;
+        // Compute delta: how many NEW tokens since last publish
+        const lastIn = this._lastTokenEvent?.input ?? 0;
+        const lastOut = this._lastTokenEvent?.output ?? 0;
+        const delta = Math.max(totalT - (lastIn + lastOut), totalT); // delta or full if first time
+        try {
+            (0, event_bus_1.publish)('session_tokens_accrued', {
+                tokens: delta,
+                inputTokens: inT,
+                outputTokens: outT,
+                sessionKey: this.deps.sessionKey,
+                timestamp: new Date().toISOString(),
+            });
+        }
+        catch { /* event-bus not available */ }
+        this._lastTokenEvent = { input: inT, output: outT };
+    }
     constructor(deps) {
         this.deps = deps;
         this.guard = new unavailable_guard_1.UnavailableGuard({
@@ -514,6 +542,7 @@ class StreamingCardController {
             await this.cardCreationPromise;
         const errorEffectiveCardId = this.cardKit.cardKitCardId ?? this.cardKit.originalCardKitCardId;
         const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+        this._publishTokenEvent(footerMetrics);
         const toolUseDisplay = this.computeToolUseDisplay();
         try {
             if (this.cardKit.cardMessageId) {
@@ -603,6 +632,7 @@ class StreamingCardController {
                     reasoningText: this.reasoning.accumulatedReasoningText || undefined,
                 }, this.imageResolver);
                 const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+                this._publishTokenEvent(footerMetrics);
                 // Resolve model prices from config for cost breakdown in footer
                 const modelPrices = (() => {
                     try { const c = this.deps.cfg; const m = footerMetrics?.model; if (!c?.models?.providers || !m) return {};
