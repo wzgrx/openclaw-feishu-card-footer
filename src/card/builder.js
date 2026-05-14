@@ -476,7 +476,6 @@ function buildCompleteCard(params) {
     const fmtK = v => { if(v===null||v===undefined||v===0)return '0'; const n=Number(v); return n>=1e9?(n/1e9).toFixed(2)+'B': n>=1e6?(n/1e6).toFixed(1)+'M': n>=1e3?(n/1e3).toFixed(1)+'k': n.toLocaleString(); };
     let tsToday = 0, tsMonth = 0, tsAllTime = 0;
     try {
-        const fs = require('fs');
         const statsDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
         const statsPath = path.join(statsDir, 'token-stats.json');
         const raw = fs.readFileSync(statsPath, 'utf8');
@@ -558,8 +557,7 @@ function buildCompleteCard(params) {
     footerEnLines.push(l5.join('·'));
     // ── Line 6: 💰 platform·¥amount·model ──
     try {
-        const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
-        const bcPath = path.join(stateDir.replace('/.openclaw', ''), '.hermes', 'data', 'balance-cache.json');
+        const bcPath = path.join(os.homedir(), '.hermes', 'data', 'balance-cache.json');
         if (fs.existsSync(bcPath)) {
             const bc = JSON.parse(fs.readFileSync(bcPath, 'utf8'));
             if (bc?.results?.length) {
