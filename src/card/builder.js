@@ -477,30 +477,19 @@ function buildCompleteCard(params) {
     let tsToday = 0, tsMonth = 0, tsAllTime = 0;
     try {
         const fs = require('fs');
-        const statsPath = require('path').join(process.env.OPENCLAW_STATE_DIR || require('os').homedir()+'/.openclaw', 'token-stats.json');
+        const statsDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
+        const statsPath = path.join(statsDir, 'token-stats.json');
         const raw = fs.readFileSync(statsPath, 'utf8');
         const st = JSON.parse(raw);
         tsToday = st.todayTokens || 0;
         tsMonth = st.monthTokens || 0;
         tsAllTime = st.allTimeTokens || 0;
     } catch(e) {}
-    // Total = max of all-time and month (ensures total never drops below month)
-    const tsTotal = Math.max(tsMonth, tsAllTime, tsToday);
+    // Total = actual allTimeTokens (no Math.max — reflects true cumulative)
+    const tsTotal = tsAllTime;
     const now = new Date();
     const ts = `${now.getMonth()+1}/${now.getDate()}-${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    
-    const fp = formatFooterRuntimeSegments({
-        footer,
-        metrics: footerMetrics,
-        elapsedMs,
-        isError,
-        isAborted,
-        showGlobalTokens,
-        inputPrice,
-        outputPrice,
-        cacheReadPrice,
-        firstTokenLatencyMs: footerMetrics?.firstTokenLatencyMs,
-    });
+
     const footerZhLines = [];
     const footerEnLines = [];
     // ── Line 1: 今/月/总（从 token-stats.json 读取） ──
@@ -534,8 +523,10 @@ function buildCompleteCard(params) {
         // Always compute total from parts to guarantee sum matches
         const displayTotal = cIn + cOut + cCac;
         const fc = v => v < 0.01 ? v.toFixed(4) : v.toFixed(2);
-        footerZhLines.push(`💸 ¥${fc(displayTotal)} = 入¥${fc(cIn)} + 出¥${fc(cOut)} + 缓存¥${fc(cCac)}`);
-        footerEnLines.push(`💸 ¥${fc(displayTotal)} = In ¥${fc(cIn)} + Out ¥${fc(cOut)} + Cache ¥${fc(cCac)}`);
+        // Cost config in openclaw.json is stored in USD (e.g. DeepSeek $1/M input)
+        // Display as $ to match config unit. No assumption about CNY exchange rate.
+        footerZhLines.push(`💸 $${fc(displayTotal)} = 入$${fc(cIn)} + 出$${fc(cOut)} + 缓存$${fc(cCac)}`);
+        footerEnLines.push(`💸 $${fc(displayTotal)} = In $${fc(cIn)} + Out $${fc(cOut)} + Cache $${fc(cCac)}`);
     }
     // ── Line 5: 📑 context/limit (%)·↑ input ↓ output · 缓存 read/write (%) ──
     let l5 = [];
@@ -552,8 +543,10 @@ function buildCompleteCard(params) {
     }
     const cR = footerMetrics?.cacheRead;
     // If cacheWrite is not tracked (always 0 from session store), compute from current turn
+    // cacheWrite is not tracked by session store (always 0).
+    // Don't inflate the denominator with untracked cacheWrite — use inputTokens instead.
     const cW = (cR != null && (footerMetrics?.cacheWrite == null || footerMetrics.cacheWrite <= 0))
-        ? (iTk || 0) + (oTk || 0)
+        ? (iTk || 0)
         : footerMetrics?.cacheWrite;
     if (cR != null && cW != null) {
         const denom = (iTk||0)+cR+cW;
@@ -564,7 +557,8 @@ function buildCompleteCard(params) {
     footerEnLines.push(l5.join('·'));
     // ── Line 6: 💰 platform·¥amount·model ──
     try {
-        const bcPath = path.join(os.homedir(), '.hermes', 'data', 'balance-cache.json');
+        const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
+        const bcPath = path.join(stateDir.replace('/.openclaw', ''), '.hermes', 'data', 'balance-cache.json');
         if (fs.existsSync(bcPath)) {
             const bc = JSON.parse(fs.readFileSync(bcPath, 'utf8'));
             if (bc?.results?.length) {
@@ -581,8 +575,8 @@ function buildCompleteCard(params) {
                     footerZhLines.push(`💰 ${found.platform}·¥${found.total.toFixed(2)}·${md}`);
                     footerEnLines.push(`💰 ${found.platform}·¥${found.total.toFixed(2)}·${md}`);
                 } else if (md) {
-                    footerZhLines.push(`💰 ${platformMatch}·¥?.??·${md}`);
-                    footerEnLines.push(`💰 ${platformMatch}·¥?.??·${md}`);
+                    footerZhLines.push(`💰 ${platformMatch}·暂无余额·${md}`);
+                    footerEnLines.push(`💰 ${platformMatch}·No balance·${md}`);
                 }
             }
         }
