@@ -399,6 +399,8 @@ class StreamingCardController {
     async onReasoningStream(payload) {
         if (!this.shouldProceed('onReasoningStream'))
             return;
+        if (this._firstContentTime === null)
+            this._firstContentTime = Date.now();
         await this.ensureCardCreated();
         if (!this.shouldProceed('onReasoningStream.postCreate'))
             return;

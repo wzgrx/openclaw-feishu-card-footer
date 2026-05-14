@@ -140,7 +140,7 @@ bash auto-patch.sh
 4. 加载对应版本的补丁
 5. 安装 Token 聚合器 + 守护进程
 6. 初始化 `token-stats.json`
-7. 配置 systemd 服务并启动
+7. 配置 systemd 服务并启动（v5.7+）
 8. 清除 JITI 编译缓存
 9. 重启网关
 10. 验证所有补丁是否生效
@@ -657,22 +657,22 @@ python3 /home/wzgrx/.hermes/scripts/deepseek-pricing-watch.py
 
 步骤 1: 检测环境
   - openclaw --version → 获取版本号
-    - v2026.5.2 → 使用 v5.3 补丁
+    - v2026.5.2 → 未维护
     - v2026.5.3 → 使用 v5.3 补丁
     - v2026.5.6 → 使用 v5.6 补丁（src/ 完整覆盖）
-    - v2026.5.7 → 使用 v5.7 流程（见下方 步骤4 详细说明）
+    - v2026.5.7 ~ v2026.5.12 → 使用 src/ 完整覆盖（见下方 步骤4）
   - node --version → 若 v22+ 需注意 compile cache
 
 步骤 2: 停止 systemd 服务（如存在）
   systemctl --user stop openclaw-gateway.service
 
 步骤 3: 安装/确认插件（v5.7 用 npx，其他用 openclaw plugins install）
-  - v5.2: npm install -g @larksuite/openclaw-lark
+  - v5.2: (已停止维护)
   - v5.3/v5.6: openclaw plugins install @larksuite/openclaw-lark
-  - v5.7: cd ~/.openclaw && npx -y @larksuite/openclaw-lark@2026.5.7 install --version 2026.5.7 --tools-version 1.0.43
+  - v5.7 ~ v2026.5.12: cd ~/.openclaw && npx -y @larksuite/openclaw-lark@2026.5.13 install --version 2026.5.13 --tools-version 1.0.45
     ⚠️ npx install 会重写 openclaw.json！安装后立即恢复配置备份
 
-步骤 4: v5.7 专有适配流程（因 patch 文件与 v5.7 源码行号不匹配，改用 src/ 覆盖）
+步骤 4: v5.7+ 适配流程（src/ 完整覆盖）
   PLUGIN_DIR=~/.openclaw/extensions/openclaw-lark
 
   a. 覆盖补丁后的源文件
@@ -723,7 +723,8 @@ python3 /home/wzgrx/.hermes/scripts/deepseek-pricing-watch.py
 
 | 版本 | OpenClaw 版本 | 发布日期 | 主要变更 |
 |------|---------------|----------|----------|
-| v5.7 | v2026.5.7 | 2026-05-10 | 🎉 6-Line Footer · First-token latency fix · allTimeTokens · Proactive card creation · 完整 systemd 支持 |
+| v5.12 | v2026.5.12-beta.6 | 2026-05-14 | 🎉 适配 plugin@2026.5.13 · 内置 session key workaround · threadId 支持 · gate 策略增强 |
+| v5.7 | v2026.5.7 | 2026-05-10 | 6-Line Footer · First-token latency fix · allTimeTokens · Proactive card creation · 完整 systemd 支持 |
 | v5.6 | v2026.5.6 | — | Footer/streaming 配置迁移至全局 messages · replyMode 显式配置需求 |
 | v5.3 | v2026.5.3 | — | 补充缺失函数 · 补丁版部署 |
 | v5.2 | v2026.5.2 | — | 初始版本（已停止维护） |
