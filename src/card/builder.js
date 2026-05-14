@@ -539,19 +539,18 @@ function buildCompleteCard(params) {
     const iTk = footerMetrics?.inputTokens;
     const oTk = footerMetrics?.outputTokens;
     if (iTk != null && oTk != null) {
-        l5.push(`累计 ↑ ${fmtK(iTk)} ↓ ${fmtK(oTk)}`);
+        l5.push(`本轮 ↑ ${fmtK(iTk)} ↓ ${fmtK(oTk)}`);
     }
     const cR = footerMetrics?.cacheRead;
-    // If cacheWrite is not tracked (always 0 from session store), compute from current turn
-    // cacheWrite is not tracked by session store (always 0).
-    // Don't inflate the denominator with untracked cacheWrite — use inputTokens instead.
-    const cW = (cR != null && (footerMetrics?.cacheWrite == null || footerMetrics.cacheWrite <= 0))
-        ? (iTk || 0)
-        : footerMetrics?.cacheWrite;
-    if (cR != null && cW != null) {
-        const denom = (iTk||0)+cR+cW;
+    const hasCW = footerMetrics?.cacheWrite && footerMetrics.cacheWrite > 0;
+    if (cR != null && cR > 0 && hasCW) {
+        // cacheWrite tracked: show read/write + hit rate
+        const denom = (iTk||0) + cR + (footerMetrics.cacheWrite || 0);
         const hr = denom > 0 ? Math.round((cR/denom)*100) : 0;
-        l5.push(`缓存 ${fmtK(cR)}/${fmtK(cW)} (${hr}%)`);
+        l5.push(`缓存 ${fmtK(cR)}/${fmtK(footerMetrics.cacheWrite)} (${hr}%)`);
+    } else if (cR != null && cR > 0) {
+        // cacheWrite untracked (always 0): show raw read amount only, no misleading %
+        l5.push(`缓存 ${fmtK(cR)}`);
     }
     footerZhLines.push(l5.join('·'));
     footerEnLines.push(l5.join('·'));
