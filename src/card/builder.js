@@ -259,8 +259,8 @@ function formatFooterRuntimeSegments(params) {
         const cost = calcModelCost(metrics, inputPrice, outputPrice, cacheReadPrice);
         if (cost > 0) {
             const costStr = cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2);
-            detailZh.push(`💸 $${costStr}`);
-            detailEn.push(`💸 $${costStr}`);
+            detailZh.push(`💸 ¥${costStr}`);
+            detailEn.push(`💸 ¥${costStr}`);
         }
     }
     if (footer?.elapsed && firstTokenLatencyMs != null) {
@@ -523,10 +523,11 @@ function buildCompleteCard(params) {
         // Always compute total from parts to guarantee sum matches
         const displayTotal = cIn + cOut + cCac;
         const fc = v => v < 0.01 ? v.toFixed(4) : v.toFixed(2);
-        // Cost config in openclaw.json is stored in USD (e.g. DeepSeek $1/M input)
-        // Display as $ to match config unit. No assumption about CNY exchange rate.
-        footerZhLines.push(`💸 $${fc(displayTotal)} = 入$${fc(cIn)} + 出$${fc(cOut)} + 缓存$${fc(cCac)}`);
-        footerEnLines.push(`💸 $${fc(displayTotal)} = In $${fc(cIn)} + Out $${fc(cOut)} + Cache $${fc(cCac)}`);
+        // Cost config in openclaw.json is stored in USD (e.g. DeepSeek $1/M input).
+        // Display as ¥ for Chinese users. Assumes 1:1 USD:CNY — config is in USD
+        // but DeepSeek/阿里百炼 CNY prices happen to match USD values closely.
+        footerZhLines.push(`💸 ¥${fc(displayTotal)} = 入¥${fc(cIn)} + 出¥${fc(cOut)} + 缓存¥${fc(cCac)}`);
+        footerEnLines.push(`💸 ¥${fc(displayTotal)} = In ¥${fc(cIn)} + Out ¥${fc(cOut)} + Cache ¥${fc(cCac)}`);
     }
     // ── Line 5: 📑 context/limit (%)·↑ input ↓ output · 缓存 read/write (%) ──
     let l5 = [];
