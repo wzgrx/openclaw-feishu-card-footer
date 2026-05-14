@@ -241,7 +241,7 @@ function formatFooterRuntimeSegments(params) {
         }
     }
     // --- Detail line 1: tokens, cache, cost ---
-    // Token counts moved to context section below with "累计" label
+    // Token counts moved to context section below with "本轮" label
     if (footer?.cache && metrics) {
         const read = typeof metrics.cacheRead === 'number' ? Math.max(0, metrics.cacheRead) : undefined;
         const write = typeof metrics.cacheWrite === 'number' ? Math.max(0, metrics.cacheWrite) : undefined;
@@ -271,7 +271,7 @@ function formatFooterRuntimeSegments(params) {
     // --- Detail line 2 (separate line): context window + tokens ---
     if (footer?.context && metrics) {
         // 📑: 本次请求上下文用量（current totalTokens, 能涨能跌）
-        // ↑↓: 会话累计输入/输出（lifetime in/out, 只增不降）
+        // ↑↓: 本轮输入/输出（current turn in/out）
         let curTotal;
         if (typeof metrics.totalTokens === 'number' && metrics.totalTokens > 0) {
             curTotal = metrics.totalTokens;
@@ -290,12 +290,12 @@ function formatFooterRuntimeSegments(params) {
             contextZh.push(`📑 本次 ${curLabel}/${ctxLabel} (${pct}%)`);
             contextEn.push(`📑 cur ${curLabel}/${ctxLabel} (${pct}%)`);
         }
-        // 累计 ↑↓ 加 label 区分
+        // 本轮 ↑↓ 加 label 区分
         const inTokens = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
         const outTokens = typeof metrics.outputTokens === 'number' ? Math.max(0, metrics.outputTokens) : undefined;
         if (inTokens != null && outTokens != null) {
-            contextZh.push(`累计 ↑ ${compactNumber(inTokens)} ↓ ${compactNumber(outTokens)}`);
-            contextEn.push(`lifetime ↑ ${compactNumber(inTokens)} ↓ ${compactNumber(outTokens)}`);
+            contextZh.push(`本轮 ↑ ${compactNumber(inTokens)} ↓ ${compactNumber(outTokens)}`);
+            contextEn.push(`this turn ↑ ${compactNumber(inTokens)} ↓ ${compactNumber(outTokens)}`);
         }
     }
     // --- Daily token line: 🪙 Token今/月 (read from token-stats.json) ---
