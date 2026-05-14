@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
-# auto-patch.sh — OpenClaw Feishu Card Footer 全自动部署脚本 (v5.7)
-# 支持 OpenClaw v2026.5.2 / v2026.5.3 / v2026.5.6 / v2026.5.7
+# auto-patch.sh — OpenClaw Feishu Card Footer 全自动部署脚本 (v5.7+)
+# 支持 OpenClaw v2026.5.2 / v2026.5.3 / v2026.5.6 / v2026.5.7 / v2026.5.12
 # 自动检测版本 → 备份 → 打补丁 → 安装聚合器 → 启动服务 → 验证
 # ============================================================================
 set -euo pipefail
@@ -42,6 +42,7 @@ case "$OC_VER" in
     2026.5.3)   OC_MAJOR="5.3" ;;
     2026.5.6)   OC_MAJOR="5.6" ;;
     2026.5.7)   OC_MAJOR="5.7" ;;
+    2026.5.12*|2026.5.1*)   OC_MAJOR="5.7" ;;
     *)
         warn "未识别的版本 v$OC_VER，将尝试 v5.7 方式部署"
         OC_MAJOR="5.7"
@@ -57,11 +58,13 @@ elif [[ "$OC_MAJOR" == "5.7" ]]; then
     # v5.7: npx install 安装到 extensions/ 路径（与 v5.3/v5.6 不同！）
     EXT_PLUGIN="$HOME/.openclaw/extensions/openclaw-lark"
     if [ ! -d "$EXT_PLUGIN" ]; then
-        info "插件未安装，执行: npx -y @larksuite/openclaw-lark@2026.5.7 install"
+        PLUGIN_VER="2026.5.13"
+        TOOLS_VER="1.0.45"
+        info "插件未安装，执行: npx -y @larksuite/openclaw-lark@${PLUGIN_VER} install"
         cd "$HOME/.openclaw" 2>/dev/null
-        npx -y "@larksuite/openclaw-lark@2026.5.7" install --version 2026.5.7 --tools-version 1.0.43 2>/dev/null || {
-            warn "npx install 失败，尝试降级 tools-version..."
-            npx -y "@larksuite/openclaw-lark@2026.5.7" install --version 2026.5.7 --tools-version 1.0.42
+        npx -y "@larksuite/openclaw-lark@${PLUGIN_VER}" install --version ${PLUGIN_VER} --tools-version ${TOOLS_VER} 2>/dev/null || {
+            warn "npx install 失败，尝试降级..."
+            npx -y "@larksuite/openclaw-lark@${PLUGIN_VER}" install --version ${PLUGIN_VER} --tools-version 1.0.44
         }
         cd "$SCRIPT_DIR" 2>/dev/null
     fi
@@ -337,11 +340,11 @@ else
     warn "⚠️  First-token latency 补丁可能未生效"
 fi
 
-# 验证 event-bus.js 是否存在（v5.7 需手动补充）
+# 验证 event-bus.js 是否存在（渠道组件需要）
 if [ -f "$PLUGIN_DIR/src/channel/event-bus.js" ]; then
     info "✅ event-bus.js 已存在"
 else
-    warn "⚠️  event-bus.js 缺失（v5.7 需手动补充 src/channel/event-bus.js）"
+    warn "⚠️  event-bus.js 缺失（需从项目 src/channel/ 手动补充）"
 fi
 
 # 验证 gate.js 是否有群聊放行逻辑
@@ -383,6 +386,6 @@ echo ""
 echo -e "  ${YELLOW}注意事项:${NC}"
 echo "  - 如 footer 不显示，确认 channels.feishu 下有 footer 配置（或检查 builder.js 是否覆盖成功）"
 echo "  - 如群聊无回复，确认 channels.feishu 下有 groupPolicy/requireMention 配置"
-echo "  - npx install 会覆盖 openclaw.json！安装后需恢复自定义配置（groupPolicy/footer/streaming 等）"
+echo "  - npx install 会覆盖 openclaw.json！安装后需恢复自定义配置（lossless-claw/groupPolicy/footer 等）"
 echo "  - 检查飞书 WebSocket: grep -E 'feishu.*WebSocket.*started' /tmp/openclaw-1000/openclaw-*.log"
 echo ""
