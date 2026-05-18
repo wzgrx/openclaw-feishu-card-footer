@@ -355,6 +355,9 @@ function buildCompleteCard(params) {
         tsToday = st.todayTokens || 0;
         tsMonth = st.monthTokens || 0;
         tsAllTime = st.allTimeTokens || 0;
+        // Fallback: if allTimeTokens isn't tracked yet (missing from token-stats.json),
+        // use monthTokens as the next best cumulative value
+        if (!tsAllTime && tsMonth > 0) tsAllTime = tsMonth;
     } catch(e) {}
     // Total = actual allTimeTokens (no Math.max — reflects true cumulative)
     const tsTotal = tsAllTime;

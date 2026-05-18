@@ -31,8 +31,8 @@ const SCAN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const FLUSH_INTERVAL_MS = 30 * 1000; // flush stats every 30s
 const DAEMON_ALIVE_THRESHOLD_MS = 360 * 1000; // 6 minutes (Bug#12 fix: was 120s)
 const HOME_DIR = (0, os_1.homedir)();
-const DEFAULT_CRON_RUNS_DIR = path_1.default.join(HOME_DIR, '.openclaw', 'cron', 'runs');
-const DEFAULT_TOKEN_STATS_PATH = path_1.default.join(HOME_DIR, '.openclaw', 'token-stats.json');
+const DEFAULT_CRON_RUNS_DIR = path_1.join(HOME_DIR, '.openclaw', 'cron', 'runs');
+const DEFAULT_TOKEN_STATS_PATH = path_1.join(HOME_DIR, '.openclaw', 'token-stats.json');
 // ---------------------------------------------------------------------------
 // Helpers (must use UTC methods, locale-independent)
 // ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ function performScan(cronRunsDir) {
         }
         // Scan new/changed files incrementally
         for (const file of files) {
-            const filePath = path_1.default.join(cronRunsDir, file);
+            const filePath = path_1.join(cronRunsDir, file);
             const state = fileState.get(file) || { lastLineIndex: 0, lastTotalTokens: 0 };
             try {
                 const content = (0, fs_1.readFileSync)(filePath, 'utf8');
@@ -231,6 +231,11 @@ function flushStats(tokenStatsPath) {
             dateKey: currentKey,
             todayTokens: globalToday,
             monthTokens: globalMonth,
+            // Preserve allTimeTokens from Event path if available (it's the canonical cumulative counter)
+            // If missing, fall back to monthTokens as starting cumulative value
+            allTimeTokens: (existing.allTimeTokens && existing.allTimeTokens > 0)
+                ? existing.allTimeTokens
+                : globalMonth,
             daemonToday,
             daemonMonth,
             sessionTotals: sessionTotalsObj,
