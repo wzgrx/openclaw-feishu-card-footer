@@ -18,6 +18,7 @@ const promises_1 = require("node:fs/promises");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const event_bus_1 = require("../channel/event-bus.js");
 const agent_runtime_1 = require("openclaw/plugin-sdk/agent-runtime");
 const reply_runtime_1 = require("openclaw/plugin-sdk/reply-runtime");
 const api_error_1 = require("../core/api-error.js");
