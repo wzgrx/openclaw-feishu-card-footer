@@ -402,122 +402,92 @@ function buildCompleteCard(params) {
         tag: 'markdown',
         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
     });
-    // ---- Old-style detailed footer ----
+        // Footer: 6-line format (ported from v5.7)
+    const fmtK = (v) => { if (v === null || v === undefined || v === 0) return '0'; const n = Number(v); return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : n.toLocaleString(); };
+    let tsToday = 0, tsMonth = 0, tsAllTime = 0;
+    try {
+        const statsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
+        const raw = fs.readFileSync(statsPath, 'utf8');
+        const st = JSON.parse(raw);
+        tsToday = st.todayTokens || 0;
+        tsMonth = st.monthTokens || 0;
+        tsAllTime = st.allTimeTokens || 0;
+    } catch (_) {}
+    const tsTotal = Math.max(tsMonth, tsAllTime, tsToday);
+    const now = new Date();
+    const shanghai = new Date(now.getTime() + 8 * 3600 * 1000);
+    const ts = `${shanghai.getUTCMonth() + 1}/${shanghai.getUTCDate()}-${String(shanghai.getUTCHours()).padStart(2, '0')}:${String(shanghai.getUTCMinutes()).padStart(2, '0')}`;
     const footerZhLines = [];
     const footerEnLines = [];
     // Line 1: global token stats
-    try {
-        const homeDir = os.homedir();
-        const statsPath = path.join(homeDir, '.openclaw', 'token-stats.json');
-        if (fs.existsSync(statsPath)) {
-            const raw = fs.readFileSync(statsPath, 'utf8');
-            const st = JSON.parse(raw);
-            const tsToday = st.todayTokens || 0;
-            const tsMonth = st.monthTokens || 0;
-            let tsAllTime = st.allTimeTokens || 0;
-            if (!tsAllTime && tsMonth > 0) tsAllTime = tsMonth;
-            const fmtK = (k) => Math.abs(k) >= 1000 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`;
-            const now = new Date();
-            const shanghai = new Date(now.getTime() + 8 * 3600 * 1000);
-            const date = `${shanghai.getUTCMonth() + 1}/${shanghai.getUTCDate()}-${String(shanghai.getUTCHours()).padStart(2, '0')}:${String(shanghai.getUTCMinutes()).padStart(2, '0')}`;
-            const tokenLine = `🪙Token 今/月/总: ${compactNumber(tsToday)}/${compactNumber(tsMonth)}/${compactNumber(tsAllTime)} · ${date}`;
-            footerZhLines.push(tokenLine);
-            footerEnLines.push(tokenLine);
-        }
-    } catch (_) {}
+    footerZhLines.push(`🪙Token 今/月/总: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsTotal)} · ${ts}`);
+    footerEnLines.push(`🪙Token Today/Month/Total: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsTotal)} · ${ts}`);
     // Line 2: separator
     footerZhLines.push('──────────────────');
     footerEnLines.push('──────────────────');
-    // Line 3: status · elapsed · first-token latency
-    {
-        const partsZh = [];
-        const partsEn = [];
-        if (isError) { partsZh.push('❌ 出错'); partsEn.push('❌ Error'); }
-        else if (isAborted) { partsZh.push('⏹ 已停止'); partsEn.push('⏹ Stopped'); }
-        else { partsZh.push('✅ 已完成'); partsEn.push('✅ Completed'); }
-        if (elapsedMs != null) {
-            const e = formatElapsed(elapsedMs);
-            partsZh.push(`⏳️ ${e}`);
-            partsEn.push(`⏳️ ${e}`);
-        }
-        if (firstTokenLatencyMs != null) {
-            const ft = (firstTokenLatencyMs / 1000).toFixed(2);
-            partsZh.push(`🚀首token ${ft}s`);
-            partsEn.push(`🚀First token ${ft}s`);
-        }
-        if (footerMetrics?.model) {
-            const modelShort = footerMetrics.model.replace(/^deepseek\//, '');
-            partsZh.push(modelShort);
-            partsEn.push(modelShort);
-        }
-        footerZhLines.push(partsZh.join(' · '));
-        footerEnLines.push(partsEn.join(' · '));
+    // Line 3: status + elapsed + first-token latency
+    const el = elapsedMs != null ? formatElapsed(elapsedMs) : '';
+    const ft = firstTokenLatencyMs != null ? (firstTokenLatencyMs / 1000).toFixed(2) + 's' : '';
+    const l3 = ['✅ 已完成'];
+    if (el) l3.push(`⏳️ ${el}`);
+    if (ft) l3.push(`🚀首token ${ft}`);
+    footerZhLines.push(l3.join(' · '));
+    footerEnLines.push(l3.join(' · '));
+    // Line 4: cost breakdown (per-million pricing)
+    const inputPrice = 1.0, outputPrice = 2.0, cacheReadPrice = 1.0;
+    if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
+        const inT = footerMetrics.inputTokens || 0;
+        const outT = footerMetrics.outputTokens || 0;
+        const cacR = (footerMetrics.cacheRead || 0) > (inT + outT) ? (inT + outT) : (footerMetrics.cacheRead || 0);
+        const cIn = (inT / 1_000_000) * inputPrice;
+        const cOut = (outT / 1_000_000) * outputPrice;
+        const cCac = (cacR / 1_000_000) * cacheReadPrice;
+        const displayTotal = cIn + cOut + cCac;
+        const fc = (v) => v < 0.01 ? v.toFixed(4) : v.toFixed(2);
+        footerZhLines.push(`💸 ¥${fc(displayTotal)} = 入¥${fc(cIn)} + 出¥${fc(cOut)} + 缓存¥${fc(cCac)}`);
+        footerEnLines.push(`💸 ¥${fc(displayTotal)} = In¥${fc(cIn)} + Out¥${fc(cOut)} + Cache¥${fc(cCac)}`);
     }
-    // Line 4: cost breakdown
-    try {
-        if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
-            const costs = calcModelCost(footerMetrics, 0.000001, 0.000002, 0.000001);
-            if (costs > 0) {
-                const costIn = (footerMetrics.inputTokens || 0) * 0.000001;
-                const costOut = (footerMetrics.outputTokens || 0) * 0.000002;
-                const costCache = (footerMetrics.cacheRead || 0) * 0.000001;
-                const costLine = `💸 ¥${costs.toFixed(4)} = 入¥${costIn.toFixed(4)} + 出¥${costOut.toFixed(4)} + 缓存¥${costCache.toFixed(4)}`;
-                footerZhLines.push(costLine);
-                footerEnLines.push(costLine);
-            }
-        }
-    } catch (_) {}
     // Line 5: context / token detail
     if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
-        const inputStr = compactNumber(footerMetrics.inputTokens || 0);
-        const outputStr = compactNumber(footerMetrics.outputTokens || 0);
+        const inLabel = fmtK(footerMetrics.inputTokens);
+        const outLabel = fmtK(footerMetrics.outputTokens);
         const totalTokens = typeof footerMetrics.totalTokens === 'number' ? footerMetrics.totalTokens : 0;
         const contextTokens = typeof footerMetrics.contextTokens === 'number' ? footerMetrics.contextTokens : 0;
-        const totalStr = compactNumber(totalTokens);
-        const ctxStr = compactNumber(contextTokens);
+        const totalStr = fmtK(totalTokens);
+        const ctxStr = fmtK(contextTokens);
         const pct = (totalTokens && contextTokens && contextTokens >= totalTokens) ? Math.round((totalTokens / contextTokens) * 100) : 0;
-        const cacheRead = typeof footerMetrics.cacheRead === 'number' ? footerMetrics.cacheRead : 0;
-        const cacheWrite = typeof footerMetrics.cacheWrite === 'number' ? footerMetrics.cacheWrite : 0;
-        const cacheAll = cacheRead + cacheWrite;
-        const cacheStr = compactNumber(cacheAll);
-        const contextLine = `📑 本次 ${totalStr}/${ctxStr} (${pct}%)·本轮 ↑ ${inputStr} ↓ ${outputStr}·缓存 ${cacheStr}`;
-        footerZhLines.push(contextLine);
-        footerEnLines.push(contextLine);
+        const cacheLine = fmtK((footerMetrics.cacheRead || 0) + (footerMetrics.cacheWrite || 0));
+        footerZhLines.push(`📑 本次 ${totalStr}/${ctxStr} (${pct}%)·本轮 ↑ ${inLabel} ↓ ${outLabel}·缓存 ${cacheLine}`);
+        footerEnLines.push(`📑 本次 ${totalStr}/${ctxStr} (${pct}%)·本轮 ↑ ${inLabel} ↓ ${outLabel}·缓存 ${cacheLine}`);
     }
-    // Line 6: provider / model summary with cumulative cost
-    try {
-        if (footerMetrics?.model) {
-            const modelName = footerMetrics.model.replace(/^deepseek\//, '');
-            const provider = (footerMetrics.model || '').includes('deepseek') ? 'DeepSeek' : 'Unknown';
-            let totalCost = 0;
-            const homeDir = os.homedir();
-            const statsPath = path.join(homeDir, '.openclaw', 'token-stats.json');
-            if (fs.existsSync(statsPath)) {
-                const raw = fs.readFileSync(statsPath, 'utf8');
-                const st = JSON.parse(raw);
-                const totalTokens = (st.allTimeTokens || st.monthTokens || 0);
-                if (totalTokens > 0) {
-                    const inT = typeof footerMetrics.inputTokens === 'number' ? footerMetrics.inputTokens : 0;
-                    const outT = typeof footerMetrics.outputTokens === 'number' ? footerMetrics.outputTokens : 0;
-                    const sessionTokens = inT + outT;
-                    // session 费用只算 input+output（不含缓存以免稀释均价）
-                    const sessionCost = calcModelCost(footerMetrics, 0.000001, 0.000002, 0);
-                    if (sessionTokens > 0 && sessionCost > 0) {
-                        const avgPrice = sessionCost / sessionTokens;
-                        totalCost = totalTokens * avgPrice;
-                    }
+    // Line 6: provider + cumulative cost + model
+    if (footerMetrics?.model) {
+        const modelName = footerMetrics.model.replace(/^deepseek\//, '');
+        const provider = (footerMetrics.model || '').includes('deepseek') ? 'DeepSeek' : 'Unknown';
+        let totalCost = 0;
+        try {
+            const statsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
+            const raw = fs.readFileSync(statsPath, 'utf8');
+            const st = JSON.parse(raw);
+            const totalTokens = (st.allTimeTokens || st.monthTokens || 0);
+            if (totalTokens > 0) {
+                const inT = footerMetrics.inputTokens || 0;
+                const outT = footerMetrics.outputTokens || 0;
+                const sessionTokens = inT + outT;
+                const sessionCost = calcModelCost(footerMetrics, 0, 0.000002, 0);
+                if (sessionTokens > 0 && sessionCost > 0) {
+                    totalCost = totalTokens * (sessionCost / sessionTokens);
                 }
             }
-            const costStr = totalCost > 0 ? `·¥${totalCost.toFixed(2)}` : '';
-            const provLine = `💰 ${provider}${costStr}·${modelName}`;
-            footerZhLines.push(provLine);
-            footerEnLines.push(provLine);
-        }
-    } catch (_) {}
+        } catch (_) {}
+        const costStr = totalCost > 0 ? `·¥${totalCost.toFixed(2)}` : '';
+        footerZhLines.push(`💰 ${provider}${costStr}·${modelName}`);
+        footerEnLines.push(`💰 ${provider}${costStr}·${modelName}`);
+    }
     if (footerZhLines.length > 0) {
         elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
     }
-    // Use the answer text as the feed preview summary.
+// Use the answer text as the feed preview summary.
     // Strip markdown syntax so the preview reads as plain text.
     const summaryText = text.replace(/[*_`#>[\]()~]/g, '').trim();
     const summary = summaryText ? { content: summaryText.slice(0, 120) } : undefined;
