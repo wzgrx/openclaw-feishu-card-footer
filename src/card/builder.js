@@ -420,7 +420,7 @@ function buildCompleteCard(params) {
             const now = new Date();
             const shanghai = new Date(now.getTime() + 8 * 3600 * 1000);
             const date = `${shanghai.getUTCMonth() + 1}/${shanghai.getUTCDate()}-${String(shanghai.getUTCHours()).padStart(2, '0')}:${String(shanghai.getUTCMinutes()).padStart(2, '0')}`;
-            const tokenLine = `🪙Token 今/月/总: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsAllTime)} · ${date}`;
+            const tokenLine = `🪙Token 今/月/总: ${compactNumber(tsToday)}/${compactNumber(tsMonth)}/${compactNumber(tsAllTime)} · ${date}`;
             footerZhLines.push(tokenLine);
             footerEnLines.push(tokenLine);
         }
@@ -445,17 +445,22 @@ function buildCompleteCard(params) {
             partsZh.push(`🚀首token ${ft}s`);
             partsEn.push(`🚀First token ${ft}s`);
         }
+        if (footerMetrics?.model) {
+            const modelShort = footerMetrics.model.replace(/^deepseek\//, '');
+            partsZh.push(modelShort);
+            partsEn.push(modelShort);
+        }
         footerZhLines.push(partsZh.join(' · '));
         footerEnLines.push(partsEn.join(' · '));
     }
     // Line 4: cost breakdown
     try {
         if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
-            const costs = calcModelCost(footerMetrics, 0.00015, 0.0006, 0.00007);
+            const costs = calcModelCost(footerMetrics, 0.000001, 0.000002, 0.000001);
             if (costs > 0) {
-                const costIn = (footerMetrics.inputTokens || 0) * 0.00015;
-                const costOut = (footerMetrics.outputTokens || 0) * 0.0006;
-                const costCache = (footerMetrics.cacheRead || 0) * 0.00007;
+                const costIn = (footerMetrics.inputTokens || 0) * 0.000001;
+                const costOut = (footerMetrics.outputTokens || 0) * 0.000002;
+                const costCache = (footerMetrics.cacheRead || 0) * 0.000001;
                 const costLine = `💸 ¥${costs.toFixed(4)} = 入¥${costIn.toFixed(4)} + 出¥${costOut.toFixed(4)} + 缓存¥${costCache.toFixed(4)}`;
                 footerZhLines.push(costLine);
                 footerEnLines.push(costLine);
@@ -464,21 +469,51 @@ function buildCompleteCard(params) {
     } catch (_) {}
     // Line 5: context / token detail
     if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
-        const inK = typeof footerMetrics.inputTokens === 'number' ? `${Math.round(footerMetrics.inputTokens / 100) / 10}k` : '?';
-        const outK = typeof footerMetrics.outputTokens === 'number' ? `${Math.round(footerMetrics.outputTokens / 100) / 10}k` : '?';
+        const inputStr = compactNumber(footerMetrics.inputTokens || 0);
+        const outputStr = compactNumber(footerMetrics.outputTokens || 0);
         const totalTokens = typeof footerMetrics.totalTokens === 'number' ? footerMetrics.totalTokens : 0;
         const contextTokens = typeof footerMetrics.contextTokens === 'number' ? footerMetrics.contextTokens : 0;
-        const totalK = totalTokens ? `${Math.round(totalTokens / 100) / 10}k` : '?';
-        const ctxK = contextTokens ? `${Math.round(contextTokens / 100) / 10}k` : '?';
-        const pct = (totalTokens && contextTokens && contextTokens > totalTokens) ? Math.round((totalTokens / contextTokens) * 100) : 0;
+        const totalStr = compactNumber(totalTokens);
+        const ctxStr = compactNumber(contextTokens);
+        const pct = (totalTokens && contextTokens && contextTokens >= totalTokens) ? Math.round((totalTokens / contextTokens) * 100) : 0;
         const cacheRead = typeof footerMetrics.cacheRead === 'number' ? footerMetrics.cacheRead : 0;
         const cacheWrite = typeof footerMetrics.cacheWrite === 'number' ? footerMetrics.cacheWrite : 0;
         const cacheAll = cacheRead + cacheWrite;
-        const cacheK = cacheAll ? `${Math.round(cacheAll / 100) / 10}k` : '0';
-        const contextLine = `📑 本次 ${totalK}/${ctxK} (${pct}%)·本轮 ↑ ${inK} ↓ ${outK}·缓存 ${cacheK}`;
+        const cacheStr = compactNumber(cacheAll);
+        const contextLine = `📑 本次 ${totalStr}/${ctxStr} (${pct}%)·本轮 ↑ ${inputStr} ↓ ${outputStr}·缓存 ${cacheStr}`;
         footerZhLines.push(contextLine);
         footerEnLines.push(contextLine);
     }
+    // Line 6: provider / model summary with cumulative cost
+    try {
+        if (footerMetrics?.model) {
+            const modelName = footerMetrics.model.replace(/^deepseek\//, '');
+            const provider = (footerMetrics.model || '').includes('deepseek') ? 'DeepSeek' : 'Unknown';
+            let totalCost = 0;
+            const homeDir = os.homedir();
+            const statsPath = path.join(homeDir, '.openclaw', 'token-stats.json');
+            if (fs.existsSync(statsPath)) {
+                const raw = fs.readFileSync(statsPath, 'utf8');
+                const st = JSON.parse(raw);
+                const totalTokens = (st.allTimeTokens || st.monthTokens || 0);
+                if (totalTokens > 0) {
+                    const inT = typeof footerMetrics.inputTokens === 'number' ? footerMetrics.inputTokens : 0;
+                    const outT = typeof footerMetrics.outputTokens === 'number' ? footerMetrics.outputTokens : 0;
+                    const sessionTokens = inT + outT;
+                    // session 费用只算 input+output（不含缓存以免稀释均价）
+                    const sessionCost = calcModelCost(footerMetrics, 0.000001, 0.000002, 0);
+                    if (sessionTokens > 0 && sessionCost > 0) {
+                        const avgPrice = sessionCost / sessionTokens;
+                        totalCost = totalTokens * avgPrice;
+                    }
+                }
+            }
+            const costStr = totalCost > 0 ? `·¥${totalCost.toFixed(2)}` : '';
+            const provLine = `💰 ${provider}${costStr}·${modelName}`;
+            footerZhLines.push(provLine);
+            footerEnLines.push(provLine);
+        }
+    } catch (_) {}
     if (footerZhLines.length > 0) {
         elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
     }
