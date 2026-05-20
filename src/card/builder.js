@@ -466,14 +466,21 @@ function buildCompleteCard(params) {
         const provider = (footerMetrics.model || '').includes('deepseek') ? 'DeepSeek' : 'Unknown';
         let totalCost = 0;
         try {
-            const statsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
-            const raw = fs.readFileSync(statsPath, 'utf8');
-            const st = JSON.parse(raw);
-            const totalTokens = (st.allTimeTokens || st.monthTokens || 0);
-            if (totalTokens > 0) {
-                // 固定均价：假设历史 token 平均 60% input + 40% output（不含缓存）
-                // 均价 = inputPrice * 0.6 + outputPrice * 0.4 = 1.0 * 0.6 + 2.0 * 0.4 = 1.4 ¥/M
-                totalCost = (totalTokens / 1_000_000) * 1.4;
+            const bcPath = path.join(os.homedir(), '.hermes', 'data', 'balance-cache.json');
+            if (fs.existsSync(bcPath)) {
+                const bc = JSON.parse(fs.readFileSync(bcPath, 'utf8'));
+                if (bc?.results?.length) {
+                    const modelName = (footerMetrics?.model || '').toLowerCase();
+                    let platformMatch = '';
+                    if (modelName.includes('deepseek')) platformMatch = 'DeepSeek';
+                    else if (modelName.includes('qwen') || modelName.includes('bailian')) platformMatch = '阿里百炼';
+                    else if (modelName.includes('silicon') || modelName.includes('glm')) platformMatch = '硅基流动';
+                    else platformMatch = bc.results[0]?.platform || '';
+                    const found = bc.results.find(r => r.platform === platformMatch);
+                    if (found && found.total > 0) {
+                        totalCost = found.total;
+                    }
+                }
             }
         } catch (_) {}
         const costStr = totalCost > 0 ? `·¥${totalCost.toFixed(2)}` : '';
