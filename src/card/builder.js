@@ -424,8 +424,6 @@ function buildCompleteCard(params) {
     }
     // --- Global token stats (from token-stats.json) ---
     try {
-        const statsDir = path.dirname(require.resolve('openclaw/package.json'));
-        const openclawDir = path.resolve(statsDir, '..', '..');
         const homeDir = os.homedir();
         const statsPath = path.join(homeDir, '.openclaw', 'token-stats.json');
         if (fs.existsSync(statsPath)) {
@@ -443,6 +441,22 @@ function buildCompleteCard(params) {
         }
     } catch (e) {
         // ignore token-stats errors
+    }
+    // --- Cost line (from footerMetrics + model pricing) ---
+    try {
+        if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
+            const costs = calcModelCost(footerMetrics, 0.00015, 0.0006, 0.00007);
+            if (costs > 0) {
+                const costIn = (footerMetrics.inputTokens || 0) * 0.00015;
+                const costOut = (footerMetrics.outputTokens || 0) * 0.0006;
+                const costCache = (footerMetrics.cacheRead || 0) * 0.00007;
+                const costLine = `💸 ¥${costs.toFixed(4)} = 入¥${costIn.toFixed(4)} + 出¥${costOut.toFixed(4)} + 缓存¥${costCache.toFixed(4)}`;
+                footerZhLines.push(costLine);
+                footerEnLines.push(costLine);
+            }
+        }
+    } catch (e) {
+        // ignore cost errors
     }
     if (footerZhLines.length > 0) {
         elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
