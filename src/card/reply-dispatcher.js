@@ -88,14 +88,6 @@ function createFeishuReplyDispatcher(params) {
             resolvedFooter,
         })
         : null;
-    // ---- Proactive card creation (fix: create card before agent responds) ----
-    if (controller) {
-        setImmediate(() => {
-            controller.ensureCardCreated().catch(err => {
-                log.warn('proactive card creation failed', { error: String(err) });
-            });
-        });
-    }
     // ---- Static mode unavailable guard ----
     // In streaming mode the controller owns its own guard; in static mode
     // we still need unavailable-message detection for typing and deliver.
@@ -204,12 +196,13 @@ function createFeishuReplyDispatcher(params) {
             }
             // 提取文本和媒体 URL
             const text = getVisiblePayloadText(payload);
+            const reasoningText = payload.isReasoning === true ? (payload.text ?? '') : '';
             const payloadMediaUrls = payload.mediaUrls?.length
                 ? payload.mediaUrls
                 : payload.mediaUrl
                     ? [payload.mediaUrl]
                     : [];
-            if (!text.trim() && payloadMediaUrls.length === 0) {
+            if (!text.trim() && !reasoningText.trim() && payloadMediaUrls.length === 0) {
                 log.debug('deliver: empty text and no media, skipping');
                 return;
             }
@@ -219,12 +212,17 @@ function createFeishuReplyDispatcher(params) {
                     await controller.onToolPayload(payload);
                     return;
                 }
-                if (text.trim()) {
+                const controllerText = reasoningText.trim() ? reasoningText : text;
+                if (controllerText.trim()) {
                     await controller.ensureCardCreated();
                     if (controller.isTerminated)
                         return;
                     if (controller.cardMessageId) {
-                        await controller.onDeliver({ ...payload, text });
+                        if (payload.isReasoning === true) {
+                            await controller.onReasoningStream({ ...payload, text: controllerText });
+                            return;
+                        }
+                        await controller.onDeliver({ ...payload, text: controllerText });
                         return;
                     }
                     // Card creation failed — fall through to static delivery
@@ -378,6 +376,10 @@ function createFeishuReplyDispatcher(params) {
                 return;
             }
             if (!dispatchFullyComplete) {
+                // 不依赖 markFullyComplete，直接进入 onIdle 以构建完整卡片（含 footer）
+                if (controller) {
+                    await controller.onIdle();
+                }
                 typingCallbacks.onIdle?.();
                 return;
             }

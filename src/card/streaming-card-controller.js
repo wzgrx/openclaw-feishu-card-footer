@@ -662,8 +662,8 @@ class StreamingCardController {
     async onIdle() {
         if (this.guard.isTerminated || this.guard.shouldSkip('onIdle'))
             return;
-        if (!this.dispatchFullyComplete)
-            return;
+        // 确保标记为完成，即使 SDK 未调用 markFullyComplete
+        this.dispatchFullyComplete = true;
         if (this.isTerminalPhase)
             return;
         this.captureToolUseElapsed();
