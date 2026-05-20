@@ -298,6 +298,10 @@ class StreamingCardController {
             st.dateKey = dateKey;
             st.todayTokens = (sameDay ? (st.todayTokens || 0) : 0) + delta;
             st.monthTokens = (sameMonth ? (st.monthTokens || 0) : 0) + delta;
+            // allTimeTokens: daemon writes omit this field, so fall back to monthTokens
+            if (st.allTimeTokens == null && typeof st.monthTokens === 'number') {
+                st.allTimeTokens = st.monthTokens;
+            }
             st.allTimeTokens = (st.allTimeTokens || 0) + delta;
             st.sessionTotals = st.sessionTotals || {};
             if (this.deps.sessionKey) {
