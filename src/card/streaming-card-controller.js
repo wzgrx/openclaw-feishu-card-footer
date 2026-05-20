@@ -15,6 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.StreamingCardController = void 0;
 exports.prepareTerminalCardContent = prepareTerminalCardContent;
 const promises_1 = require("node:fs/promises");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 const agent_runtime_1 = require("openclaw/plugin-sdk/agent-runtime");
 const reply_runtime_1 = require("openclaw/plugin-sdk/reply-runtime");
 const api_error_1 = require("../core/api-error.js");
@@ -228,6 +231,34 @@ class StreamingCardController {
             });
         }
         catch { /* event-bus not available */ }
+        // DIRECT FALLBACK: write to token-stats.json in case event-bus doesn't deliver
+        try {
+            const tokenStatsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
+            let st = {};
+            try { st = JSON.parse(fs.readFileSync(tokenStatsPath, 'utf8')); } catch { /* new file */ }
+            const now = new Date();
+            const shanghaiOffset = 8 * 3600 * 1000;
+            const d = new Date(now.getTime() + shanghaiOffset);
+            const dateKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+            const monthKey = dateKey.substring(0, 7);
+            const sameDay = st.dateKey === dateKey;
+            const sameMonth = st.dateKey && st.dateKey.substring(0, 7) === monthKey;
+            
+            st.dateKey = dateKey;
+            st.todayTokens = (sameDay ? (st.todayTokens || 0) : 0) + delta;
+            st.monthTokens = (sameMonth ? (st.monthTokens || 0) : 0) + delta;
+            st.allTimeTokens = (st.allTimeTokens || 0) + delta;
+            st.sessionTotals = st.sessionTotals || {};
+            if (this.deps.sessionKey) {
+                st.sessionTotals[this.deps.sessionKey] = (st.sessionTotals[this.deps.sessionKey] || 0) + delta;
+            }
+            st.source = 'streaming-card-controller';
+            st.updatedAt = now.toISOString();
+            fs.writeFileSync(tokenStatsPath, JSON.stringify(st, null, 2), 'utf8');
+        } catch (err) {
+            this.log.warn('direct token-stats write failed', { error: String(err) });
+        }
+        
         this._lastTokenEvent = { input: inT, output: outT };
     }
     constructor(deps) {
