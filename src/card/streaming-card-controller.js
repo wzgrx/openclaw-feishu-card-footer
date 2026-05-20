@@ -210,8 +210,27 @@ class StreamingCardController {
      * Called from onIdle / onError after footer metrics are resolved.
      */
     _publishTokenEvent(metrics) {
-        if (!this.deps.sessionKey || !metrics)
+        if (!this.deps.sessionKey)
             return;
+        // Fallback: if getFooterSessionMetrics failed, read session store directly
+        if (!metrics) {
+            try {
+                const fallbackData = this._getSessionTokensFromStore();
+                if (fallbackData) {
+                    metrics = fallbackData;
+                    log.debug('_publishTokenEvent: using fallback session store data', {
+                        inputTokens: metrics.inputTokens,
+                        outputTokens: metrics.outputTokens,
+                        sessionKey: this.deps.sessionKey,
+                    });
+                }
+            }
+            catch (err) {
+                log.warn('_publishTokenEvent fallback failed', { error: String(err) });
+            }
+            if (!metrics)
+                return;
+        }
         const inT = typeof metrics.inputTokens === 'number' ? metrics.inputTokens : 0;
         const outT = typeof metrics.outputTokens === 'number' ? metrics.outputTokens : 0;
         const totalT = inT + outT;
@@ -232,6 +251,38 @@ class StreamingCardController {
         }
         catch { /* event-bus not available */ }
         // DIRECT FALLBACK: write to token-stats.json in case event-bus doesn't deliver
+        // Always update token-stats.json regardless of event-bus delivery
+        this._updateTokenStatsFile(delta, inT, outT);
+        
+        this._lastTokenEvent = { input: inT, output: outT };
+    }
+    /**
+     * Fallback: read session tokens directly from store when runtime API is unavailable.
+     */
+    _getSessionTokensFromStore() {
+        const cfgWithSession = this.deps.cfg;
+        const sessionStorePath = cfgWithSession.sessions?.store ?? cfgWithSession.session?.store;
+        if (!sessionStorePath)
+            return null;
+        const storePath = sessionStorePath.replace(/^~\//, os.homedir() + '/');
+        if (!fs.existsSync(storePath))
+            return null;
+        const raw = fs.readFileSync(storePath, 'utf8');
+        const store = JSON.parse(raw);
+        const key = this.deps.sessionKey.trim().toLowerCase();
+        const entry = store[key];
+        if (entry && typeof entry === 'object') {
+            return {
+                inputTokens: typeof entry.inputTokens === 'number' ? entry.inputTokens : undefined,
+                outputTokens: typeof entry.outputTokens === 'number' ? entry.outputTokens : undefined,
+            };
+        }
+        return null;
+    }
+    /**
+     * Write token delta directly to token-stats.json (belt-and-suspenders).
+     */
+    _updateTokenStatsFile(delta, inT, outT) {
         try {
             const tokenStatsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
             let st = {};
@@ -258,8 +309,6 @@ class StreamingCardController {
         } catch (err) {
             this.log.warn('direct token-stats write failed', { error: String(err) });
         }
-        
-        this._lastTokenEvent = { input: inT, output: outT };
     }
     constructor(deps) {
         this.deps = deps;
