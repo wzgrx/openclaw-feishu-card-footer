@@ -68,6 +68,7 @@ class StreamingCardController {
         elapsedMs: 0,
         isActive: false,
     };
+    firstTokenTimestamp = null;
     // ---- Sub-controllers ----
     flush;
     guard;
@@ -469,6 +470,9 @@ class StreamingCardController {
         const text = payload.text ?? '';
         if (!text.trim())
             return;
+        if (!this.firstTokenTimestamp) {
+            this.firstTokenTimestamp = Date.now();
+        }
         await this.ensureCardCreated();
         if (!this.shouldProceed('onDeliver.postCreate'))
             return;
@@ -509,6 +513,9 @@ class StreamingCardController {
             return;
         if (!this.cardKit.cardMessageId)
             return;
+        if (!this.firstTokenTimestamp) {
+            this.firstTokenTimestamp = Date.now();
+        }
         const rawText = payload.text ?? '';
         if (!rawText)
             return;
@@ -715,6 +722,7 @@ class StreamingCardController {
                     toolUseElapsedMs: this.visibleToolUseElapsedMs,
                     showToolUse: this.deps.toolUseDisplay.showToolUse,
                     elapsedMs: this.elapsed(),
+                    firstTokenLatencyMs: this.firstTokenTimestamp ? this.firstTokenTimestamp - this.dispatchStartTime : undefined,
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
                 });
@@ -793,6 +801,7 @@ class StreamingCardController {
                     toolUseElapsedMs: this.visibleToolUseElapsedMs,
                     showToolUse: this.deps.toolUseDisplay.showToolUse,
                     elapsedMs,
+                    firstTokenLatencyMs: this.firstTokenTimestamp ? this.firstTokenTimestamp - this.dispatchStartTime : undefined,
                     isAborted: true,
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
@@ -811,6 +820,7 @@ class StreamingCardController {
                     toolUseElapsedMs: this.visibleToolUseElapsedMs,
                     showToolUse: this.deps.toolUseDisplay.showToolUse,
                     elapsedMs,
+                    firstTokenLatencyMs: this.firstTokenTimestamp ? this.firstTokenTimestamp - this.dispatchStartTime : undefined,
                     isAborted: true,
                     footer: this.deps.resolvedFooter,
                     footerMetrics,

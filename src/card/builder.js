@@ -288,6 +288,7 @@ function buildCardContent(state, data = {}) {
                 toolUseElapsedMs: data.toolUseElapsedMs,
                 showToolUse: data.showToolUse,
                 isAborted: data.isAborted,
+                firstTokenLatencyMs: data.firstTokenLatencyMs,
                 footer: data.footer,
                 footerMetrics: data.footerMetrics,
             });
@@ -349,7 +350,7 @@ function buildStreamingCard(partialText, params = {}) {
     };
 }
 function buildCompleteCard(params) {
-    const { text, elapsedMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, } = params;
+    const { text, elapsedMs, firstTokenLatencyMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, } = params;
     const elements = [];
     if (showToolUse) {
         elements.push(buildToolUsePanel({
@@ -401,28 +402,10 @@ function buildCompleteCard(params) {
         tag: 'markdown',
         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
     });
-    // Footer meta-info: split into multiple lines for readability.
-    // Line 1 (primary): status · elapsed · model
-    // Line 2 (detail):  tokens · cache · context
-    // Line 3 (global):  today/month/allTime tokens from token-stats.json
-    const fp = formatFooterRuntimeSegments({
-        footer,
-        metrics: footerMetrics,
-        elapsedMs,
-        isError,
-        isAborted,
-    });
+    // ---- Old-style detailed footer ----
     const footerZhLines = [];
     const footerEnLines = [];
-    if (fp.primaryZh.length > 0) {
-        footerZhLines.push(fp.primaryZh.join(' · '));
-        footerEnLines.push(fp.primaryEn.join(' · '));
-    }
-    if (fp.detailZh.length > 0) {
-        footerZhLines.push(fp.detailZh.join(' · '));
-        footerEnLines.push(fp.detailEn.join(' · '));
-    }
-    // --- Global token stats (from token-stats.json) ---
+    // Line 1: global token stats
     try {
         const homeDir = os.homedir();
         const statsPath = path.join(homeDir, '.openclaw', 'token-stats.json');
@@ -434,15 +417,38 @@ function buildCompleteCard(params) {
             let tsAllTime = st.allTimeTokens || 0;
             if (!tsAllTime && tsMonth > 0) tsAllTime = tsMonth;
             const fmtK = (k) => Math.abs(k) >= 1000 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`;
-            const ts = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
-            const tokenLine = `🪙Token 今/月/总: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsAllTime)} · ${ts}`;
+            const now = new Date();
+            const shanghai = new Date(now.getTime() + 8 * 3600 * 1000);
+            const date = `${shanghai.getUTCMonth() + 1}/${shanghai.getUTCDate()}-${String(shanghai.getUTCHours()).padStart(2, '0')}:${String(shanghai.getUTCMinutes()).padStart(2, '0')}`;
+            const tokenLine = `🪙Token 今/月/总: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsAllTime)} · ${date}`;
             footerZhLines.push(tokenLine);
             footerEnLines.push(tokenLine);
         }
-    } catch (e) {
-        // ignore token-stats errors
+    } catch (_) {}
+    // Line 2: separator
+    footerZhLines.push('──────────────────');
+    footerEnLines.push('──────────────────');
+    // Line 3: status · elapsed · first-token latency
+    {
+        const partsZh = [];
+        const partsEn = [];
+        if (isError) { partsZh.push('❌ 出错'); partsEn.push('❌ Error'); }
+        else if (isAborted) { partsZh.push('⏹ 已停止'); partsEn.push('⏹ Stopped'); }
+        else { partsZh.push('✅ 已完成'); partsEn.push('✅ Completed'); }
+        if (elapsedMs != null) {
+            const e = formatElapsed(elapsedMs);
+            partsZh.push(`⏳️ ${e}`);
+            partsEn.push(`⏳️ ${e}`);
+        }
+        if (firstTokenLatencyMs != null) {
+            const ft = (firstTokenLatencyMs / 1000).toFixed(2);
+            partsZh.push(`🚀首token ${ft}s`);
+            partsEn.push(`🚀First token ${ft}s`);
+        }
+        footerZhLines.push(partsZh.join(' · '));
+        footerEnLines.push(partsEn.join(' · '));
     }
-    // --- Cost line (from footerMetrics + model pricing) ---
+    // Line 4: cost breakdown
     try {
         if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
             const costs = calcModelCost(footerMetrics, 0.00015, 0.0006, 0.00007);
@@ -455,8 +461,23 @@ function buildCompleteCard(params) {
                 footerEnLines.push(costLine);
             }
         }
-    } catch (e) {
-        // ignore cost errors
+    } catch (_) {}
+    // Line 5: context / token detail
+    if (footerMetrics && typeof footerMetrics.inputTokens === 'number') {
+        const inK = typeof footerMetrics.inputTokens === 'number' ? `${Math.round(footerMetrics.inputTokens / 100) / 10}k` : '?';
+        const outK = typeof footerMetrics.outputTokens === 'number' ? `${Math.round(footerMetrics.outputTokens / 100) / 10}k` : '?';
+        const totalTokens = typeof footerMetrics.totalTokens === 'number' ? footerMetrics.totalTokens : 0;
+        const contextTokens = typeof footerMetrics.contextTokens === 'number' ? footerMetrics.contextTokens : 0;
+        const totalK = totalTokens ? `${Math.round(totalTokens / 100) / 10}k` : '?';
+        const ctxK = contextTokens ? `${Math.round(contextTokens / 100) / 10}k` : '?';
+        const pct = (totalTokens && contextTokens && contextTokens > totalTokens) ? Math.round((totalTokens / contextTokens) * 100) : 0;
+        const cacheRead = typeof footerMetrics.cacheRead === 'number' ? footerMetrics.cacheRead : 0;
+        const cacheWrite = typeof footerMetrics.cacheWrite === 'number' ? footerMetrics.cacheWrite : 0;
+        const cacheAll = cacheRead + cacheWrite;
+        const cacheK = cacheAll ? `${Math.round(cacheAll / 100) / 10}k` : '0';
+        const contextLine = `📑 本次 ${totalK}/${ctxK} (${pct}%)·本轮 ↑ ${inK} ↓ ${outK}·缓存 ${cacheK}`;
+        footerZhLines.push(contextLine);
+        footerEnLines.push(contextLine);
     }
     if (footerZhLines.length > 0) {
         elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
