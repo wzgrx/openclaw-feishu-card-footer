@@ -79,8 +79,6 @@ class StreamingCardController {
     cardCreationPromise = null;
     disposeShutdownHook = null;
     dispatchStartTime = Date.now();
-    _firstContentTime = null;
-    _lastTokenEvent = null;
     // ---- Injected dependencies ----
     deps;
     elapsed() {
@@ -143,7 +141,6 @@ class StreamingCardController {
                     totalTokensFresh: typeof entry.totalTokensFresh === 'boolean' ? entry.totalTokensFresh : undefined,
                     contextTokens: typeof entry.contextTokens === 'number' ? entry.contextTokens : undefined,
                     model: typeof entry.model === 'string' ? entry.model : undefined,
-                    firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined,
                 };
                 log.debug('footer metrics lookup: session entry found', {
                     sessionKey: this.deps.sessionKey,
@@ -191,7 +188,6 @@ class StreamingCardController {
                 totalTokensFresh: typeof entry.totalTokensFresh === 'boolean' ? entry.totalTokensFresh : undefined,
                 contextTokens: typeof entry.contextTokens === 'number' ? entry.contextTokens : undefined,
                 model: typeof entry.model === 'string' ? entry.model : undefined,
-                firstTokenLatencyMs: this._firstContentTime ? this._firstContentTime - this.dispatchStartTime : undefined,
             };
             log.debug('footer metrics lookup: session entry found', {
                 sessionKey: this.deps.sessionKey,
@@ -206,9 +202,9 @@ class StreamingCardController {
             return undefined;
         }
     }
+
     /**
      * Publish token usage via event-bus for TokenAggregator to accumulate.
-     * Called from onIdle / onError after footer metrics are resolved.
      */
     _publishTokenEvent(metrics) {
         if (!this.deps.sessionKey)
@@ -240,9 +236,9 @@ class StreamingCardController {
         // Compute delta: how many NEW tokens since last publish
         const lastIn = this._lastTokenEvent?.input ?? 0;
         const lastOut = this._lastTokenEvent?.output ?? 0;
-        const delta = Math.max(totalT - (lastIn + lastOut), totalT); // delta or full if first time
+        const delta = Math.max(totalT - (lastIn + lastOut), totalT);
         try {
-            (0, event_bus_1.publish)('session_tokens_accrued', {
+            event_bus_1.publish('session_tokens_accrued', {
                 tokens: delta,
                 inputTokens: inT,
                 outputTokens: outT,
@@ -251,10 +247,8 @@ class StreamingCardController {
             });
         }
         catch { /* event-bus not available */ }
-        // DIRECT FALLBACK: write to token-stats.json in case event-bus doesn't deliver
         // Always update token-stats.json regardless of event-bus delivery
         this._updateTokenStatsFile(delta, inT, outT);
-        
         this._lastTokenEvent = { input: inT, output: outT };
     }
     /**
@@ -299,7 +293,6 @@ class StreamingCardController {
             st.dateKey = dateKey;
             st.todayTokens = (sameDay ? (st.todayTokens || 0) : 0) + delta;
             st.monthTokens = (sameMonth ? (st.monthTokens || 0) : 0) + delta;
-            // allTimeTokens: daemon writes omit this field, so fall back to monthTokens
             if (st.allTimeTokens == null && typeof st.monthTokens === 'number') {
                 st.allTimeTokens = st.monthTokens;
             }
@@ -315,6 +308,7 @@ class StreamingCardController {
             this.log.warn('direct token-stats write failed', { error: String(err) });
         }
     }
+
     constructor(deps) {
         this.deps = deps;
         this.guard = new unavailable_guard_1.UnavailableGuard({
@@ -475,8 +469,6 @@ class StreamingCardController {
         const text = payload.text ?? '';
         if (!text.trim())
             return;
-        if (this._firstContentTime === null)
-            this._firstContentTime = Date.now();
         await this.ensureCardCreated();
         if (!this.shouldProceed('onDeliver.postCreate'))
             return;
@@ -512,8 +504,6 @@ class StreamingCardController {
     async onReasoningStream(payload) {
         if (!this.shouldProceed('onReasoningStream'))
             return;
-        if (this._firstContentTime === null)
-            this._firstContentTime = Date.now();
         await this.ensureCardCreated();
         if (!this.shouldProceed('onReasoningStream.postCreate'))
             return;
@@ -569,8 +559,6 @@ class StreamingCardController {
     async onPartialReply(payload) {
         if (!this.shouldProceed('onPartialReply'))
             return;
-        if (this._firstContentTime === null)
-            this._firstContentTime = Date.now();
         // Use splitReasoningText (consistent with onDeliver/onReasoningStream)
         // to extract <think> tag content before stripping it from the answer.
         // Previously only stripReasoningTags was called, silently discarding
@@ -718,15 +706,6 @@ class StreamingCardController {
                 }, this.imageResolver);
                 const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
                 this._publishTokenEvent(footerMetrics);
-                // Resolve model prices from config for cost breakdown in footer
-                const modelPrices = (() => {
-                    try { const c = this.deps.cfg; const m = footerMetrics?.model; if (!c?.models?.providers || !m) return {};
-                    for (const p of Object.values(c.models.providers)) { if (!p?.models) continue;
-                    for (const v of p.models) { if (!v?.id || !v?.cost) continue;
-                    if (v.id === m || m.endsWith('/'+v.id) || v.id.endsWith('/'+m) || m.includes(v.id))
-                    return { inputPrice: typeof v.cost.input==='number'?v.cost.input:undefined, outputPrice: typeof v.cost.output==='number'?v.cost.output:undefined, cacheReadPrice: typeof v.cost.cacheRead==='number'?v.cost.cacheRead:undefined };
-                    } } return {}; } catch { return {}; }
-                })();
                 const completeCard = (0, builder_1.buildCardContent)('complete', {
                     text: terminalContent.text,
                     reasoningText: terminalContent.reasoningText,
@@ -738,7 +717,6 @@ class StreamingCardController {
                     elapsedMs: this.elapsed(),
                     footer: this.deps.resolvedFooter,
                     footerMetrics,
-                    ...modelPrices,
                 });
                 if (idleEffectiveCardId) {
                     const seqBeforeUpdate = this.cardKit.cardKitSequence;
@@ -804,6 +782,7 @@ class StreamingCardController {
                 reasoningText: this.reasoning.accumulatedReasoningText || undefined,
             }, this.imageResolver);
             const footerMetrics = this.needsFooterMetrics() ? await this.getFooterSessionMetrics() : undefined;
+            this._publishTokenEvent(footerMetrics);
             if (effectiveCardId) {
                 const abortCardContent = (0, builder_1.buildCardContent)('complete', {
                     text: terminalContent.text,

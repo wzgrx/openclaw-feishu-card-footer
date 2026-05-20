@@ -17,6 +17,7 @@ exports.formatToolUseDuration = formatToolUseDuration;
 exports.formatElapsed = formatElapsed;
 exports.compactNumber = compactNumber;
 exports.calcModelCost = calcModelCost;
+exports.formatFooterRuntimeSegments = formatFooterRuntimeSegments;
 exports.buildCardContent = buildCardContent;
 exports.buildStreamingThinkingCard = buildStreamingThinkingCard;
 exports.buildStreamingPreAnswerCard = buildStreamingPreAnswerCard;
@@ -170,28 +171,92 @@ function compactNumber(value) {
     }
     if (abs >= 1_000) {
         const k = value / 1_000;
-        return Math.abs(k) >= 1000 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`;
+        return Math.abs(k) >= 100 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`;
     }
     return `${Math.round(value)}`;
 }
+function formatFooterRuntimeSegments(params) {
+    const { footer, metrics, elapsedMs, isError, isAborted } = params;
+    const primaryZh = [];
+    const primaryEn = [];
+    const detailZh = [];
+    const detailEn = [];
+    // --- Primary line: status, elapsed, model ---
+    if (footer?.status) {
+        if (isError) {
+            primaryZh.push('出错');
+            primaryEn.push('Error');
+        }
+        else if (isAborted) {
+            primaryZh.push('已停止');
+            primaryEn.push('Stopped');
+        }
+        else {
+            primaryZh.push('已完成');
+            primaryEn.push('Completed');
+        }
+    }
+    if (footer?.elapsed && elapsedMs != null) {
+        const d = formatElapsed(elapsedMs);
+        primaryZh.push(`耗时 ${d}`);
+        primaryEn.push(`Elapsed ${d}`);
+    }
+    if (footer?.model && metrics?.model) {
+        const model = metrics.model.trim();
+        if (model) {
+            primaryZh.push(model);
+            primaryEn.push(model);
+        }
+    }
+    // --- Detail line: tokens, cache, context ---
+    if (footer?.tokens && metrics) {
+        const inTokens = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
+        const outTokens = typeof metrics.outputTokens === 'number' ? Math.max(0, metrics.outputTokens) : undefined;
+        if (inTokens != null && outTokens != null) {
+            const inLabel = compactNumber(inTokens);
+            const outLabel = compactNumber(outTokens);
+            detailZh.push(`↑ ${inLabel} ↓ ${outLabel}`);
+            detailEn.push(`↑ ${inLabel} ↓ ${outLabel}`);
+        }
+    }
+    if (footer?.cache && metrics) {
+        const read = typeof metrics.cacheRead === 'number' ? Math.max(0, metrics.cacheRead) : undefined;
+        const write = typeof metrics.cacheWrite === 'number' ? Math.max(0, metrics.cacheWrite) : undefined;
+        const inputVal = typeof metrics.inputTokens === 'number' ? Math.max(0, metrics.inputTokens) : undefined;
+        if (read != null && write != null && inputVal != null) {
+            const total = read + write + inputVal;
+            const hit = total > 0 ? Math.round((read / total) * 100) : 0;
+            const left = compactNumber(read);
+            const right = compactNumber(write);
+            detailZh.push(`缓存 ${left}/${right} (${hit}%)`);
+            detailEn.push(`Cache ${left}/${right} (${hit}%)`);
+        }
+    }
+    if (footer?.context && metrics) {
+        const freshTotal = metrics.totalTokensFresh === false ? undefined : metrics.totalTokens;
+        const total = typeof freshTotal === 'number' ? Math.max(0, freshTotal) : undefined;
+        const ctx = typeof metrics.contextTokens === 'number' ? Math.max(0, metrics.contextTokens) : undefined;
+        if (total != null && ctx != null) {
+            const totalLabel = compactNumber(total);
+            const ctxLabel = compactNumber(ctx);
+            const pct = ctx > 0 ? Math.round((total / ctx) * 100) : 0;
+            const pctLabel = `${pct}%`;
+            detailZh.push(`上下文 ${totalLabel}/${ctxLabel} (${pctLabel})`);
+            detailEn.push(`Context ${totalLabel}/${ctxLabel} (${pctLabel})`);
+        }
+    }
+    return { primaryZh, primaryEn, detailZh, detailEn };
+}
 /**
- * Calculate estimated cost from token usage and model pricing.
- * Formula: inputTokens/1M * input_price + outputTokens/1M * output_price + cacheRead/1M * cacheRead_price
- * @returns estimated cost in USD (or 0 if no pricing data available)
+ * Calculate total cost from model pricing and usage metrics.
  */
 function calcModelCost(metrics, inputPrice, outputPrice, cacheReadPrice) {
-    const inT = typeof metrics?.inputTokens === 'number' && metrics.inputTokens > 0 ? metrics.inputTokens : 0;
-    const outT = typeof metrics?.outputTokens === 'number' && metrics.outputTokens > 0 ? metrics.outputTokens : 0;
-    const cacheR = typeof metrics?.cacheRead === 'number' && metrics.cacheRead > 0 ? metrics.cacheRead : 0;
-    const inPrice = typeof inputPrice === 'number' && inputPrice > 0 ? inputPrice : 0;
-    const outPrice = typeof outputPrice === 'number' && outputPrice > 0 ? outputPrice : 0;
-    const cacheRPrice = typeof cacheReadPrice === 'number' && cacheReadPrice > 0 ? cacheReadPrice : 0;
-    if (inPrice === 0 && outPrice === 0 && cacheRPrice === 0)
+    if (!metrics || inputPrice == null || outputPrice == null)
         return 0;
-    const cost = (inT / 1_000_000) * inPrice
-        + (outT / 1_000_000) * outPrice
-        + (cacheR / 1_000_000) * cacheRPrice;
-    return cost > 0.0001 ? Math.round(cost * 10000) / 10000 : 0;
+    const inT = typeof metrics.inputTokens === 'number' ? metrics.inputTokens : 0;
+    const outT = typeof metrics.outputTokens === 'number' ? metrics.outputTokens : 0;
+    const cacheReadT = typeof metrics.cacheRead === 'number' ? metrics.cacheRead : 0;
+    return (inT * inputPrice + outT * outputPrice + cacheReadT * (cacheReadPrice ?? 0));
 }
 // ---------------------------------------------------------------------------
 // buildCardContent
@@ -225,10 +290,6 @@ function buildCardContent(state, data = {}) {
                 isAborted: data.isAborted,
                 footer: data.footer,
                 footerMetrics: data.footerMetrics,
-                showGlobalTokens: data.showGlobalTokens,
-                inputPrice: data.inputPrice,
-                outputPrice: data.outputPrice,
-                cacheReadPrice: data.cacheReadPrice,
             });
         case 'confirm':
             return buildConfirmCard(data.confirmData);
@@ -288,7 +349,7 @@ function buildStreamingCard(partialText, params = {}) {
     };
 }
 function buildCompleteCard(params) {
-    const { text, elapsedMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, showGlobalTokens, inputPrice, outputPrice, cacheReadPrice } = params;
+    const { text, elapsedMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, } = params;
     const elements = [];
     if (showToolUse) {
         elements.push(buildToolUsePanel({
@@ -340,123 +401,51 @@ function buildCompleteCard(params) {
         tag: 'markdown',
         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
     });
-    // Footer meta-info: split into three lines for readability.
+    // Footer meta-info: split into multiple lines for readability.
     // Line 1 (primary): status · elapsed · model
-    // Line 2 (detail):  tokens · cache · cost
-    // Line 3 (context): context window
-    // 从 token-stats.json 读取全局 Token 统计（用户自定义前置行）
-    const fmtK = v => { if(v===null||v===undefined||v===0)return '0'; const n=Number(v); return n>=1e9?(n/1e9).toFixed(2)+'B': n>=1e6?(n/1e6).toFixed(1)+'M': n>=1e3?(n/1e3).toFixed(1)+'k': n.toLocaleString(); };
-    let tsToday = 0, tsMonth = 0, tsAllTime = 0;
-    try {
-        const statsDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
-        const statsPath = path.join(statsDir, 'token-stats.json');
-        const raw = fs.readFileSync(statsPath, 'utf8');
-        const st = JSON.parse(raw);
-        tsToday = st.todayTokens || 0;
-        tsMonth = st.monthTokens || 0;
-        tsAllTime = st.allTimeTokens || 0;
-        // Fallback: if allTimeTokens isn't tracked yet (missing from token-stats.json),
-        // use monthTokens as the next best cumulative value
-        if (!tsAllTime && tsMonth > 0) tsAllTime = tsMonth;
-    } catch(e) {}
-    // Total = actual allTimeTokens (no Math.max — reflects true cumulative)
-    const tsTotal = tsAllTime;
-    const now = new Date();
-    const ts = `${now.getMonth()+1}/${now.getDate()}-${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-
+    // Line 2 (detail):  tokens · cache · context
+    // Line 3 (global):  today/month/allTime tokens from token-stats.json
+    const fp = formatFooterRuntimeSegments({
+        footer,
+        metrics: footerMetrics,
+        elapsedMs,
+        isError,
+        isAborted,
+    });
     const footerZhLines = [];
     const footerEnLines = [];
-    // ── Line 1: 今/月/总（从 token-stats.json 读取） ──
-    footerZhLines.push(`🪙Token 今/月/总: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsTotal)} · ${ts}`);
-    footerEnLines.push(`🪙Token Today/Month/Total: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsTotal)} · ${ts}`);
-    // ── Line 2: 分隔线 ──
-    footerZhLines.push('──────────────────');
-    footerEnLines.push('──────────────────');
-    // ── Line 3: ✅ 已完成 · ⏳️ time · 🚀首token ft ──
-    const el = elapsedMs != null ? formatElapsed(elapsedMs) : '';
-    const ft = footerMetrics?.firstTokenLatencyMs != null ? (footerMetrics.firstTokenLatencyMs/1000).toFixed(2)+'s' : '';
-    let l3 = ['✅ 已完成'];
-    if (el) l3.push(`⏳️ ${el}`);
-    if (ft) l3.push(`🚀首token ${ft}`);
-    footerZhLines.push(l3.join(' · '));
-    footerEnLines.push(l3.join(' · '));
-    // ── Line 4: 💸 ¥total = 入¥input + 出¥output + 缓存¥cache (session delta) ──
-    const costTotal = calcModelCost(footerMetrics, inputPrice, outputPrice, cacheReadPrice);
-    if (costTotal > 0 || (footerMetrics?.inputTokens || 0) > 0) {
-        const inT = footerMetrics?.inputTokens || 0;
-        const outT = footerMetrics?.outputTokens || 0;
-        // Use session delta for cache cost: only count the current turn's context
-        // cacheRead in session store is ACCUMULATED across all turns
-        // The per-turn cache delta ≈ inT + outT (what was read from context this turn)
-        const cacR = (footerMetrics?.cacheRead || 0) > (inT + outT) 
-            ? (inT + outT) // cache is accumulated, cap at current turn's total
-            : (footerMetrics?.cacheRead || 0);
-        const cIn = (inT/1_000_000)*(inputPrice||0);
-        const cOut = (outT/1_000_000)*(outputPrice||0);
-        const cCac = (cacR/1_000_000)*(cacheReadPrice||0);
-        // Always compute total from parts to guarantee sum matches
-        const displayTotal = cIn + cOut + cCac;
-        const fc = v => v < 0.01 ? v.toFixed(4) : v.toFixed(2);
-        // Cost config in openclaw.json is stored in USD (e.g. DeepSeek $1/M input).
-        // Display as ¥ for Chinese users. Assumes 1:1 USD:CNY — config is in USD
-        // but DeepSeek/阿里百炼 CNY prices happen to match USD values closely.
-        footerZhLines.push(`💸 ¥${fc(displayTotal)} = 入¥${fc(cIn)} + 出¥${fc(cOut)} + 缓存¥${fc(cCac)}`);
-        footerEnLines.push(`💸 ¥${fc(displayTotal)} = In ¥${fc(cIn)} + Out ¥${fc(cOut)} + Cache ¥${fc(cCac)}`);
+    if (fp.primaryZh.length > 0) {
+        footerZhLines.push(fp.primaryZh.join(' · '));
+        footerEnLines.push(fp.primaryEn.join(' · '));
     }
-    // ── Line 5: 📑 context/limit (%)·↑ input ↓ output · 缓存 read/write (%) ──
-    let l5 = [];
-    const ctxUsed = footerMetrics?.totalTokens || footerMetrics?.inputTokens || 0;
-    const ctxMax = footerMetrics?.contextTokens || 0;
-    if (ctxMax > 0) {
-        const pct = Math.round((ctxUsed/ctxMax)*100);
-        l5.push(`📑 本次 ${fmtK(ctxUsed)}/${fmtK(ctxMax)} (${pct}%)`);
+    if (fp.detailZh.length > 0) {
+        footerZhLines.push(fp.detailZh.join(' · '));
+        footerEnLines.push(fp.detailEn.join(' · '));
     }
-    const iTk = footerMetrics?.inputTokens;
-    const oTk = footerMetrics?.outputTokens;
-    if (iTk != null && oTk != null) {
-        l5.push(`本轮 ↑ ${fmtK(iTk)} ↓ ${fmtK(oTk)}`);
-    }
-    const cR = footerMetrics?.cacheRead;
-    const hasCW = footerMetrics?.cacheWrite && footerMetrics.cacheWrite > 0;
-    if (cR != null && cR > 0 && hasCW) {
-        // cacheWrite tracked: show read/write + hit rate
-        const denom = (iTk||0) + cR + (footerMetrics.cacheWrite || 0);
-        const hr = denom > 0 ? Math.round((cR/denom)*100) : 0;
-        l5.push(`缓存 ${fmtK(cR)}/${fmtK(footerMetrics.cacheWrite)} (${hr}%)`);
-    } else if (cR != null && cR > 0) {
-        // cacheWrite untracked (always 0): show raw read amount only, no misleading %
-        l5.push(`缓存 ${fmtK(cR)}`);
-    }
-    footerZhLines.push(l5.join('·'));
-    footerEnLines.push(l5.join('·'));
-    // ── Line 6: 💰 platform·¥amount·model ──
+    // --- Global token stats (from token-stats.json) ---
     try {
-        const bcPath = path.join(os.homedir(), '.hermes', 'data', 'balance-cache.json');
-        if (fs.existsSync(bcPath)) {
-            const bc = JSON.parse(fs.readFileSync(bcPath, 'utf8'));
-            if (bc?.results?.length) {
-                const modelName = footerMetrics?.model?.toLowerCase() || '';
-                // 根据当前模型匹配平台: deepseek → DeepSeek, qwen/bailian → 阿里百炼
-                let platformMatch = '';
-                if (modelName.includes('deepseek')) platformMatch = 'DeepSeek';
-                else if (modelName.includes('qwen') || modelName.includes('bailian')) platformMatch = '阿里百炼';
-                else if (modelName.includes('silicon') || modelName.includes('glm')) platformMatch = '硅基流动';
-                else platformMatch = bc.results[0]?.platform || '';
-                const found = bc.results.find(r => r.platform === platformMatch);
-                const md = footerMetrics?.model?.trim() || '';
-                if (found && found.total > 0) {
-                    footerZhLines.push(`💰 ${found.platform}·¥${found.total.toFixed(2)}·${md}`);
-                    footerEnLines.push(`💰 ${found.platform}·¥${found.total.toFixed(2)}·${md}`);
-                } else if (md) {
-                    footerZhLines.push(`💰 ${platformMatch}·暂无余额·${md}`);
-                    footerEnLines.push(`💰 ${platformMatch}·No balance·${md}`);
-                }
-            }
+        const statsDir = path.dirname(require.resolve('openclaw/package.json'));
+        const openclawDir = path.resolve(statsDir, '..', '..');
+        const homeDir = os.homedir();
+        const statsPath = path.join(homeDir, '.openclaw', 'token-stats.json');
+        if (fs.existsSync(statsPath)) {
+            const raw = fs.readFileSync(statsPath, 'utf8');
+            const st = JSON.parse(raw);
+            const tsToday = st.todayTokens || 0;
+            const tsMonth = st.monthTokens || 0;
+            let tsAllTime = st.allTimeTokens || 0;
+            if (!tsAllTime && tsMonth > 0) tsAllTime = tsMonth;
+            const fmtK = (k) => Math.abs(k) >= 1000 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`;
+            const ts = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+            const tokenLine = `🪙Token 今/月/总: ${fmtK(tsToday)}/${fmtK(tsMonth)}/${fmtK(tsAllTime)} · ${ts}`;
+            footerZhLines.push(tokenLine);
+            footerEnLines.push(tokenLine);
         }
-    } catch(e) {}
-    // ── 渲染 ──
+    } catch (e) {
+        // ignore token-stats errors
+    }
     if (footerZhLines.length > 0) {
-elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
+        elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
     }
     // Use the answer text as the feed preview summary.
     // Strip markdown syntax so the preview reads as plain text.
