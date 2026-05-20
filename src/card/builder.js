@@ -471,13 +471,9 @@ function buildCompleteCard(params) {
             const st = JSON.parse(raw);
             const totalTokens = (st.allTimeTokens || st.monthTokens || 0);
             if (totalTokens > 0) {
-                const inT = footerMetrics.inputTokens || 0;
-                const outT = footerMetrics.outputTokens || 0;
-                const sessionTokens = inT + outT;
-                const sessionCost = calcModelCost(footerMetrics, 0, 0.000002, 0);
-                if (sessionTokens > 0 && sessionCost > 0) {
-                    totalCost = totalTokens * (sessionCost / sessionTokens);
-                }
+                // 固定均价：假设历史 token 平均 60% input + 40% output（不含缓存）
+                // 均价 = inputPrice * 0.6 + outputPrice * 0.4 = 1.0 * 0.6 + 2.0 * 0.4 = 1.4 ¥/M
+                totalCost = (totalTokens / 1_000_000) * 1.4;
             }
         } catch (_) {}
         const costStr = totalCost > 0 ? `·¥${totalCost.toFixed(2)}` : '';
