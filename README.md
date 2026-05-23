@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **OpenClaw** × **飞书 (Feishu/Lark)** 卡片消息页脚增强组件。
-**适配 OpenClaw 核心 v2026.5.19-beta.2 + @larksuite/openclaw-lark@2026.5.20-beta.0。**
+**适配 OpenClaw 核心 v2026.5.20 + @larksuite/openclaw-lark@2026.5.20-beta.0。**
 在群聊机器人卡片底部显示完整 AI 对话指标：6 行详细数据覆盖状态、耗时、费用分解、Token 统计、余额。
 
 ---
@@ -16,7 +16,7 @@
 | 简称 | 全称 | 安装方式 | 说明 |
 |------|------|----------|------|
 | **OpenClaw `v5.13` ~ `v5.19`** | **OpenClaw 核心** `v2026.5.13` ~ `v2026.5.19` | `openclaw --version` 查看 | 当前适配版本 |
-| **插件 `v2026.5.20-beta.0`（当前）** | **`@larksuite/openclaw-lark@2026.5.20-beta.0`** | `npx -y @larksuite/openclaw-lark@2026.5.20-beta.0 install --version 2026.5.20-beta.0 --tools-version 1.0.45` | 适配 OpenClaw v2026.5.19-beta.2 |
+| **插件 `v2026.5.20`（当前）** | **`@larksuite/openclaw-lark@2026.5.20-beta.0`** | `npx -y @larksuite/openclaw-lark@2026.5.20-beta.0 install --version 2026.5.20-beta.0 --tools-version 1.0.45` | 适配 OpenClaw v2026.5.20 |
 | **插件 `v2026.5.13`（旧版存档）** | **`@larksuite/openclaw-lark@2026.5.13`** | `npx -y @larksuite/openclaw-lark@2026.5.13 install --version 2026.5.13 --tools-version 1.0.45` | 适配 OpenClaw v2026.5.12 |
 | **Hermes Agent** | **Hermes** | — | ⚠️ 独立项目，仅用于读取 `balance-cache.json（累计费用）` |
 
@@ -25,7 +25,7 @@
 | 组件 | 要求 |
 |------|------|
 | **操作系统** | Linux / WSL2 Ubuntu |
-| **OpenClaw** | `v2026.5.19-beta.2`（推荐） |
+| **OpenClaw** | `v2026.5.20`（推荐） |
 | **Node.js** | **最新 LTS**（推荐 v24.15+） |
 | **飞书插件** | `@larksuite/openclaw-lark@2026.5.20-beta.0` |
 | **Hermes Agent（可选）** | 用于读取累计费用数据（`balance-cache.json`），非必装 |
