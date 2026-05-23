@@ -1,124 +1,42 @@
 {
-  "_comment": "OpenClaw 配置模板 (v5.7) — 替换 YOUR_* 占位符后使用",
-
-  "models": {
-    "mode": "merge",
-    "pricing": { "enabled": false },
-    "providers": {
-      "bailian": {
-        "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
-        "apiKey": "YOUR_BAILIAN_API_KEY",
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "qwen3.6-plus",
-            "reasoning": true,
-            "input": ["image", "text", "video"],
-            "cost": { "input": 8, "output": 48, "cacheRead": 0.8 },
-            "contextWindow": 1000000,
-            "maxTokens": 65536,
-            "compat": { "thinkingFormat": "openai" },
-            "name": "Bailian qwen3.6-plus"
-          }
-        ]
-      },
-      "deepseek": {
-        "baseUrl": "https://api.deepseek.com",
-        "apiKey": "YOUR_DEEPSEEK_API_KEY",
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "deepseek-v4-flash",
-            "reasoning": true,
-            "input": ["text"],
-            "cost": { "input": 1, "output": 2, "cacheRead": 0.02 },
-            "contextWindow": 1000000,
-            "maxTokens": 384000,
-            "compat": { "supportsReasoningEffort": true },
-            "name": "DeepSeek deepseek-v4-flash"
-          }
-        ]
-      }
-    }
-  },
+  "_comment": "OpenClaw 配置模板 — 适配 feishu-card-footer 的必要配置",
 
   "agents": {
     "defaults": {
-      "model": "deepseek/deepseek-v4-flash",
-      "systemPromptOverride": "你是龙虾机器人，一个智能助手。用中文回复。"
-    },
-    "list": [
-      {
-        "id": "main",
-        "default": true,
-        "model": "deepseek/deepseek-v4-flash",
-        "systemPromptOverride": "你是龙虾机器人，一个智能助手。用中文回复。"
-      }
-    ]
-  },
-
-  "messages": {
-    "visibleReplies": "automatic",
-    "stream": true,
-    "streamChunkSize": 20,
-    "streamInterval": 100
+      "verboseDefault": "on",
+      "blockStreamingDefault": "off"
+    }
   },
 
   "channels": {
     "feishu": {
-      "app_id": "YOUR_FEISHU_APP_ID",
-      "app_secret": "YOUR_FEISHU_APP_SECRET",
-      "connectionMode": "card",
-      "replyMode": {
-        "default": "auto",
-        "direct": "streaming",
-        "group": "streaming"
-      },
-      "dmPolicy": "open"
+      "appId": "YOUR_APP_ID",
+      "appSecret": "YOUR_APP_SECRET",
+      "streaming": true,
+      "groupPolicy": "open",
+      "requireMention": false,
+      "footer": {
+        "status": true,
+        "elapsed": true,
+        "tokens": true,
+        "cache": true,
+        "context": true,
+        "model": true
+      }
     }
   },
 
   "plugins": {
-    "entries": {
-      "openclaw-lark": { "enabled": true },
-      "feishu": { "enabled": false }
-    },
-    "allow": ["openclaw-lark"]
-  },
-
-  "tools": {
-    "alsoAllow": [
-      "message",
-      "message.search",
-      "message.search.all",
-      "message.search.filter",
-      "message.get_thread",
-      "message.get_thread.all",
-      "message.react",
-      "message.react.all",
-      "message.file",
-      "message.file.download",
-      "message.image",
-      "message.image.download",
-      "thread",
-      "thread.search",
-      "add_reaction",
-      "get_reactions",
-      "pin_message",
-      "unpin_message",
-      "get_pinned_messages"
-    ]
-  },
-
-  "session": {
-    "store": {
-      "enabled": true,
-      "path": "/home/wzgrx/.openclaw/sessions/store.json"
+    "allow": [
+      "browser",
+      "deepseek",
+      "lossless-claw",
+      "memory-core",
+      "memory-wiki",
+      "openclaw-lark"
+    ],
+    "slots": {
+      "contextEngine": "lossless-claw"
     }
-  },
-
-  "gateway": {
-    "mode": "local",
-    "token": "YOUR_GATEWAY_TOKEN"
   }
 }

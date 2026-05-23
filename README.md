@@ -1,102 +1,111 @@
 # OpenClaw Feishu Card Footer — 飞书卡片页脚增强
 
-[![OpenClaw](https://img.shields.io/badge/OpenClaw-v2026.5.19--beta.2-blue)](https://openclaw.nousresearch.com)
-[![@larksuite/openclaw-lark](https://img.shields.io/badge/%40larksuite%2Fopenclaw--lark-v2026.5.20--beta.0-green)](https://www.npmjs.com/package/@larksuite/openclaw-lark)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-v2026.5.20-blue)](https://openclaw.nousresearch.com)
+[![@larksuite/openclaw-lark](https://img.shields.io/badge/%40larksuite%2Fopenclaw--lark-v2026.5.20-green)](https://www.npmjs.com/package/@larksuite/openclaw-lark)
 [![Node.js](https://img.shields.io/badge/Node.js-LTS-339933)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**OpenClaw** × **飞书 (Feishu/Lark)** 卡片消息页脚增强组件。
-**适配 OpenClaw 核心 v2026.5.20 + @larksuite/openclaw-lark@2026.5.20-beta.0。**
-在群聊机器人卡片底部显示完整 AI 对话指标：6 行详细数据覆盖状态、耗时、费用分解、Token 统计、余额。
+**OpenClaw** × **飞书 (Feishu/Lark)** 飞书卡片多面板增强组件。
+**适配 OpenClaw 核心 v2026.5.20 + @larksuite/openclaw-lark@2026.5.20。**
+提供 4 个可折叠信息面板，覆盖系统资源监控、工具执行进度、Token 统计、费用分解等完整 AI 对话指标。
 
 ---
 
-## 📌 版本说明（必读）
+## 📌 版本说明
 
-| 简称 | 全称 | 安装方式 | 说明 |
-|------|------|----------|------|
-| **OpenClaw `v5.13` ~ `v5.19`** | **OpenClaw 核心** `v2026.5.13` ~ `v2026.5.19` | `openclaw --version` 查看 | 当前适配版本 |
-| **插件 `v2026.5.20`（当前）** | **`@larksuite/openclaw-lark@2026.5.20-beta.0`** | `npx -y @larksuite/openclaw-lark@2026.5.20-beta.0 install --version 2026.5.20-beta.0 --tools-version 1.0.45` | 适配 OpenClaw v2026.5.20 |
-| **插件 `v2026.5.13`（旧版存档）** | **`@larksuite/openclaw-lark@2026.5.13`** | `npx -y @larksuite/openclaw-lark@2026.5.13 install --version 2026.5.13 --tools-version 1.0.45` | 适配 OpenClaw v2026.5.12 |
-| **Hermes Agent** | **Hermes** | — | ⚠️ 独立项目，仅用于读取 `balance-cache.json（累计费用）` |
+| 简称 | 全称 | 说明 |
+|------|------|------|
+| **OpenClaw v5.20** | **OpenClaw 核心** `v2026.5.20` | 当前适配版本 |
+| **插件 v2026.5.20** | **`@larksuite/openclaw-lark@2026.5.20`** | 适配 OpenClaw v2026.5.20 |
 
 ## 🖥️ 基础环境要求
 
 | 组件 | 要求 |
 |------|------|
 | **操作系统** | Linux / WSL2 Ubuntu |
-| **OpenClaw** | `v2026.5.20`（推荐） |
-| **Node.js** | **最新 LTS**（推荐 v24.15+） |
-| **飞书插件** | `@larksuite/openclaw-lark@2026.5.20-beta.0` |
-| **Hermes Agent（可选）** | 用于读取累计费用数据（`balance-cache.json`），非必装 |
+| **OpenClaw** | `v2026.5.20` |
+| **Node.js** | v24.15+ |
+| **飞书插件** | `@larksuite/openclaw-lark@2026.5.20` |
 
 ### 插件安装
 
 ```bash
-# 安装 2026.5.20-beta.0 版本
-npx -y @larksuite/openclaw-lark@2026.5.20-beta.0 install --version 2026.5.20-beta.0 --tools-version 1.0.45
-
-# 安装目录：~/.openclaw/extensions/openclaw-lark/
+npm install -g @larksuite/openclaw-lark@latest
+cp -a /path/to/node_modules/@larksuite/openclaw-lark ~/.openclaw/extensions/openclaw-lark
 ```
 
 ## 🎯 功能特性
 
-卡片完成回复后，在底部显示 6 行详细数据：
+卡片包含 4 个可折叠信息面板，展开/折叠自由控制：
 
 ```
-🪙Token 今/月/总: 531.2k/90.6M/90.6M · 5/20-22:06
-──────────────────
-✅ 已完成 · ⏳️ 22.3s · 🚀首token 21.75s
-💸 ¥0.01 = 入¥0.0036 + 出¥0.0035 + 缓存¥0.0054
-📑 本次 265.7k/1.0M (27%)·本轮 ↑ 3.6k ↓ 1.8k·缓存 264.8k
-💰 DeepSeek·¥143.09·deepseek-v4-flash
+┌─ 🖥️ 系统资源  [可折叠·折叠] ──────────────────┐
+│ GPU 利用率 · VRAM · 温度 · CPU · 内存占用      │
+│ 进程 · 系统已运行时间                          │
+├─ 🛠️ 工具步骤  [可折叠·折叠] ──────────────────┤
+│ 工具调用详情（参数、结果、输出）               │
+├─ 📊 任务进度  [可折叠·展开] ──────────────────┤
+│ ████████████████ 100%                         │
+│ 🛠️ 工具执行 · 3 次                            │
+│  ■ Search web (1.5s) ✔                        │
+│  ■ Edit (2.3s) ✔                              │
+├─ [回复内容] ──────────────────────────────────┤
+├─ 🪙 deepseek-v4-flash · ¥388.25 [可折叠·折叠] ┤
+│ 🪙Token 今/月/总: ...                          │
+│ ✅ 已完成 · ⏳️ ...                             │
+│ 💸 ¥...                                        │
+│ 📑 ...                                         │
+│ 💰 ...                                         │
+└────────────────────────────────────────────────┘
 ```
 
-| 行 | 内容 | 数据来源 |
-|----|------|----------|
-| 1 🪙 | 今日/月/累计 Token 数 + 时间戳 | `~/.openclaw/token-stats.json` |
-| 2 ─── | 分隔线 | — |
-| 3 ✅ | 状态 + 耗时 + 首token延迟 | `StreamingCardController` |
-| 4 💸 | 本次会话费用分解 | Session store + 模型定价 |
-| 5 📑 | 上下文窗口 + Token 明细 + 缓存 | Session store |
-| 6 💰 | 平台累计费用 + 模型名 | `~/.hermes/data/balance-cache.json` |
+### 面板说明
+
+| 面板 | 内容 | 默认状态 |
+|:----|:----|:--------|
+| 🖥️ 系统资源 | GPU利用率/显存/温度、CPU、内存、运行时间 | 折叠 |
+| 🛠️ 工具步骤 | 工具调用参数、结果、输出（原生功能） | 折叠 |
+| 📊 任务进度 | 总进度条 + 百分比 + 每步耗时/状态 | 展开 |
+| 🪙 统计信息 | Token统计、费用分解、上下文、模型余额 | 折叠 |
 
 ## 🔧 适配方式
 
-本项目采用 **直接源码覆盖** 方式适配（代替旧版的 patch 方案）。
+本项目采用 **直接源码覆盖** 方式适配。
 
 ### 文件清单
 
-**修改的文件（6个，基于官方 beta.0）：**
+**修改的文件：**
 
 | 文件 | 修改内容 |
 |------|----------|
-| `src/core/footer-config.js` | 默认值全 `true`（opt-out 模式），新增 `cost`/`todayTokens`/`monthTokens` 字段 |
-| `src/card/builder.js` | 完整 6-line 页脚渲染（global tokens + separator + status+first-token + cost + context + provider） |
-| `src/card/streaming-card-controller.js` | 首token 延迟追踪；`_publishTokenEvent`；移除 `dispatchFullyComplete` 门控 |
-| `src/card/reply-dispatcher.js` | `onIdle` 移除 `dispatchFullyComplete` 检查，确保 complete card 始终构建 |
-| `src/card/reply-mode.js` | **龙虾补丁**：群聊启用流式卡片（移除 group→static 映射） |
-| `src/channel/monitor.js` | TokenAggregator 启动 + 健康检查 |
-
-**新增的文件（3个）：**
-
-| 文件 | 用途 |
-|------|------|
+| `src/card/builder.js` | 4 面板卡片渲染（系统资源 + 任务进度 + 6-line 页脚 + 全部可折叠） |
+| `src/card/streaming-card-controller.js` | `computeToolUseDisplay()` 始终返回步骤数据 |
+| `src/card/reply-dispatcher.js` | `onIdle` 确保 complete card 始终构建 |
+| `src/card/reply-mode.js` | 群聊启用流式卡片 |
+| `src/card/tool-use-trace-store.js` | 新增 `getToolUseTraceStore()` 运行时遍历 |
 | `src/channel/event-bus.js` | Token 事件发布总线 |
 | `src/channel/token-aggregator.js` | Token 聚合服务 |
 | `src/channel/token-aggregator-daemon.js` | Token 聚合守护进程 |
+| `src/channel/monitor.js` | TokenAggregator 启动 |
+| `src/core/footer-config.js` | 默认值全 `true` |
 
 ### 部署步骤
 
 ```bash
-# 1. 安装插件
-npx -y @larksuite/openclaw-lark@2026.5.20-beta.0 install --version 2026.5.20-beta.0 --tools-version 1.0.45
+# 1. 安装最新插件
+npm install -g @larksuite/openclaw-lark@latest
+cp -a /path/to/node_modules/@larksuite/openclaw-lark ~/.openclaw/extensions/openclaw-lark
 
 # 2. 覆盖源码
 # 将本仓库 src/ 目录下文件覆盖到 ~/.openclaw/extensions/openclaw-lark/src/
 
-# 3. 清除 jiti 缓存
-rm -rf ~/.openclaw/extensions/openclaw-lark/node_modules/.cache/jiti/
+# 3. 配置 verbose（必须）
+# 在 openclaw.json 中添加：
+# "agents": { "defaults": { "verboseDefault": "on" } }
+
+# 4. 重启网关
+systemctl --user restart openclaw-gateway
+```
 
 # 4. 重启 gateway
 systemctl --user restart openclaw-gateway
