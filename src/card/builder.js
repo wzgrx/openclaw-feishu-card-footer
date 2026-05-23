@@ -291,6 +291,7 @@ function buildCardContent(state, data = {}) {
                 firstTokenLatencyMs: data.firstTokenLatencyMs,
                 footer: data.footer,
                 footerMetrics: data.footerMetrics,
+                sessionKey: data.sessionKey,
             });
         case 'confirm':
             return buildConfirmCard(data.confirmData);
@@ -350,7 +351,7 @@ function buildStreamingCard(partialText, params = {}) {
     };
 }
 function buildCompleteCard(params) {
-    const { text, elapsedMs, firstTokenLatencyMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, } = params;
+    const { text, elapsedMs, firstTokenLatencyMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, sessionKey, } = params;
     const elements = [];
     if (showToolUse) {
         elements.push(buildToolUsePanel({
@@ -402,6 +403,46 @@ function buildCompleteCard(params) {
         tag: 'markdown',
         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
     });
+    // Task progress summary
+    try {
+        let tSteps = toolUseSteps || [];
+        if (tSteps.length > 0) {
+            const tDone = tSteps.filter(s => s.status === 'success' || s.status === 'error').length;
+            const tPct = Math.round((tDone / tSteps.length) * 100);
+            const barW = 16;
+            const barF = Math.round((tPct / 100) * barW);
+            const barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
+            let progMd = '<font color=\'grey\'>\u25a0 \u4efb\u52a1\u603b\u8fdb\u5ea6</font><br>';
+            progMd += barS + ' ' + tPct + '%\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + tDone + '/' + tSteps.length + ' \u6b21';
+            for (const st of tSteps) {
+                const title = st.title || st.toolName || 'tool';
+                const dur = st.durationMs || st.duration || 0;
+                let icon, suffix = '';
+                if (st.status === 'success') {
+                    icon = '\u2714';
+                    suffix = dur ? ' ' + formatElapsed(dur) : '';
+                } else if (st.status === 'error') {
+                    icon = '\u2716';
+                } else if (st.status === 'running' || !st.status) {
+                    icon = '\u25e6';
+                    suffix = dur ? ' (' + formatElapsed(dur) + ')' : '';
+                } else if (st.status === 'pending') {
+                    icon = '\u23f3';
+                    suffix = ' \u7b49\u5f85\u4e2d';
+                } else {
+                    continue;
+                }
+                progMd += '<br> \u25a0 ' + title + ' ' + icon + suffix;
+            }
+            elements.push({
+                tag: 'markdown',
+                content: progMd,
+                text_size: 'notation',
+            });
+        }
+    } catch (e) {
+        console.error('[CardProgress] error:', e);
+    }
         // Footer: 6-line format (ported from v5.7)
     const fmtK = (v) => { if (v === null || v === undefined || v === 0) return '0'; const n = Number(v); return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : n.toLocaleString(); };
     let tsToday = 0, tsMonth = 0, tsAllTime = 0;

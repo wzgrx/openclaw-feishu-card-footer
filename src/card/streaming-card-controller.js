@@ -372,9 +372,11 @@ class StreamingCardController {
         return this.deps.toolUseDisplay.showToolUse;
     }
     computeToolUseDisplay() {
-        if (!this.shouldDisplayToolUse)
-            return null;
         const traceSteps = (0, tool_use_trace_store_1.getToolUseTraceSteps)(this.deps.sessionKey);
+        if (!this.shouldDisplayToolUse) {
+            // Return raw trace steps even when tool use panel is hidden
+            return { steps: traceSteps, stepCount: traceSteps.length };
+        }
         return (0, tool_use_display_1.normalizeToolUseDisplay)({
             traceSteps,
             showFullPaths: this.deps.toolUseDisplay.showFullPaths,
