@@ -550,8 +550,10 @@ function buildCompleteCard(params) {
         footerEnLines.push(`📑 本次 ${totalStr}/${ctxStr} (${pct}%)·本轮 ↑ ${inLabel} ↓ ${outLabel}·缓存 ${cacheLine}`);
     }
     // Line 6: provider + cumulative cost + model
+    let hModelName = "";
+    let hTotalCost = 0;
     if (footerMetrics?.model) {
-        const modelName = footerMetrics.model.replace(/^deepseek\//, '');
+        const modelName = footerMetrics.model.replace(/^deepseek\//, ''); hModelName = modelName;
         const provider = (footerMetrics.model || '').includes('deepseek') ? 'DeepSeek' : 'Unknown';
         let totalCost = 0;
         try {
@@ -567,7 +569,7 @@ function buildCompleteCard(params) {
                     else platformMatch = bc.results[0]?.platform || '';
                     const found = bc.results.find(r => r.platform === platformMatch);
                     if (found && found.total > 0) {
-                        totalCost = found.total;
+                        totalCost = found.total; hTotalCost = totalCost;
                     }
                 }
             }
@@ -577,7 +579,47 @@ function buildCompleteCard(params) {
         footerEnLines.push(`💰 ${provider}${costStr}·${modelName}`);
     }
     if (footerZhLines.length > 0) {
-        elements.push(...buildFooter(footerZhLines.join('\n'), footerEnLines.join('\n'), isError));
+        const footerText = footerZhLines.join('\n');
+        const footerTextEn = footerEnLines.join('\n');
+        // Build header summary
+        const tsLabel = fmtK(tsTotal);
+        const hModel = hModelName || 'model';
+        const hCost = hTotalCost > 0 ? ' · ¥' + hTotalCost.toFixed(2) : '';
+        const zhHeader = '\ud83e\ude99 ' + hModel + hCost;
+        const enHeader = '\ud83e\ude99 ' + hModel + hCost;
+        elements.push({
+            tag: 'collapsible_panel',
+            expanded: false,
+            header: {
+                title: {
+                    tag: 'plain_text',
+                    content: zhHeader,
+                    i18n_content: { zh_cn: zhHeader, en_us: enHeader },
+                    text_color: 'grey',
+                    text_size: 'notation',
+                },
+                vertical_align: 'center',
+                icon: {
+                    tag: 'standard_icon',
+                    token: 'down-small-ccm_outlined',
+                    color: 'grey',
+                    size: '16px 16px',
+                },
+                icon_position: 'right',
+                icon_expanded_angle: -180,
+            },
+            border: { color: 'grey', corner_radius: '5px' },
+            vertical_spacing: '4px',
+            padding: '8px 8px 8px 8px',
+            elements: [
+                {
+                    tag: 'markdown',
+                    content: footerTextEn,
+                    i18n_content: { zh_cn: footerText, en_us: footerTextEn },
+                    text_size: 'notation',
+                },
+            ],
+        });
     }
 // Use the answer text as the feed preview summary.
     // Strip markdown syntax so the preview reads as plain text.
