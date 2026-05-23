@@ -360,6 +360,93 @@ function buildCompleteCard(params) {
             titleSuffix: toolUseTitleSuffix,
         }));
     }
+    // Progress collapsible panel (after tool panel, before content)
+    try {
+        const pSteps = toolUseSteps || [];
+        if (pSteps.length > 0) {
+            const pDone = pSteps.filter(s => s.status === 'success' || s.status === 'error').length;
+            const pTotal = pSteps.length;
+            const pPct = Math.round((pDone / pTotal) * 100);
+            const barW = 16;
+            const barF = Math.round((pPct / 100) * barW);
+            const barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
+            const allDone = pDone === pTotal;
+            // Header
+            const statusIcon = allDone ? '\u2705' : (pDone > 0 ? '\ud83d\udd04' : '\u23f3');
+            const statusText = allDone ? '\u5b8c\u6210' : '\u8fdb\u884c\u4e2d';
+            const zhHeader = '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6 ' + statusIcon + ' ' + pDone + '/' + pTotal + ' ' + statusText;
+            const enHeader = '\ud83d\udcca Progress ' + statusIcon + ' ' + pDone + '/' + pTotal + ' ' + (allDone ? 'Complete' : 'Running');
+            // Body markdown
+            let bodyMd = barS + ' ' + pPct + '%\n';
+            bodyMd += '\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21';
+            for (const st of pSteps) {
+                const name = st.title || st.toolName || 'tool';
+                const dur = st.durationMs || st.duration || 0;
+                let icon, suffix = '';
+                if (st.status === 'success') {
+                    icon = '\u2714';
+                    suffix = dur ? ' ' + formatElapsed(dur) : '';
+                } else if (st.status === 'error') {
+                    icon = '\u2716';
+                } else if (st.status === 'running' || !st.status) {
+                    icon = '\u25e6';
+                    if (st.progress != null) {
+                        const bw = 8;
+                        const bf = Math.round((st.progress / 100) * bw);
+                        suffix += ' ' + st.progress + '% ' + '\u2588'.repeat(bf) + '\u2591'.repeat(bw - bf);
+                    }
+                    if (dur) {
+                        suffix += ' (' + formatElapsed(dur);
+                        if (st.estimated) suffix += '/' + formatElapsed(st.estimated);
+                        suffix += ')';
+                    }
+                } else if (st.status === 'pending') {
+                    icon = '\u23f3';
+                    suffix = ' \u7b49\u5f85\u4e2d';
+                } else {
+                    continue;
+                }
+                bodyMd += '\n \u25a0 ' + name + ' ' + icon + suffix;
+            }
+            elements.push({
+                tag: 'collapsible_panel',
+                expanded: true,
+                header: {
+                    title: {
+                        tag: 'plain_text',
+                        content: zhHeader,
+                        i18n_content: {
+                            zh_cn: zhHeader,
+                            en_us: enHeader,
+                        },
+                        text_color: 'grey',
+                        text_size: 'notation',
+                    },
+                    vertical_align: 'center',
+                    icon: {
+                        tag: 'standard_icon',
+                        token: 'down-small-ccm_outlined',
+                        color: 'grey',
+                        size: '16px 16px',
+                    },
+                    icon_position: 'right',
+                    icon_expanded_angle: -180,
+                },
+                border: { color: 'grey', corner_radius: '5px' },
+                vertical_spacing: '4px',
+                padding: '8px 8px 8px 8px',
+                elements: [
+                    {
+                        tag: 'markdown',
+                        content: bodyMd,
+                        text_size: 'notation',
+                    },
+                ],
+            });
+        }
+    } catch (e) {
+        console.error('[PanelProgress] error:', e);
+    }
     // Collapsible reasoning panel (before main content)
     if (reasoningText) {
         const dur = reasoningElapsedMs ? formatReasoningDuration(reasoningElapsedMs) : null;
@@ -403,46 +490,7 @@ function buildCompleteCard(params) {
         tag: 'markdown',
         content: (0, markdown_style_1.optimizeMarkdownStyle)(text),
     });
-    // Task progress summary
-    try {
-        let tSteps = toolUseSteps || [];
-        if (tSteps.length > 0) {
-            const tDone = tSteps.filter(s => s.status === 'success' || s.status === 'error').length;
-            const tPct = Math.round((tDone / tSteps.length) * 100);
-            const barW = 16;
-            const barF = Math.round((tPct / 100) * barW);
-            const barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
-            let progMd = '<font color=\'grey\'>\u25a0 \u4efb\u52a1\u603b\u8fdb\u5ea6</font><br>';
-            progMd += barS + ' ' + tPct + '%\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + tDone + '/' + tSteps.length + ' \u6b21';
-            for (const st of tSteps) {
-                const title = st.title || st.toolName || 'tool';
-                const dur = st.durationMs || st.duration || 0;
-                let icon, suffix = '';
-                if (st.status === 'success') {
-                    icon = '\u2714';
-                    suffix = dur ? ' ' + formatElapsed(dur) : '';
-                } else if (st.status === 'error') {
-                    icon = '\u2716';
-                } else if (st.status === 'running' || !st.status) {
-                    icon = '\u25e6';
-                    suffix = dur ? ' (' + formatElapsed(dur) + ')' : '';
-                } else if (st.status === 'pending') {
-                    icon = '\u23f3';
-                    suffix = ' \u7b49\u5f85\u4e2d';
-                } else {
-                    continue;
-                }
-                progMd += '<br> \u25a0 ' + title + ' ' + icon + suffix;
-            }
-            elements.push({
-                tag: 'markdown',
-                content: progMd,
-                text_size: 'notation',
-            });
-        }
-    } catch (e) {
-        console.error('[CardProgress] error:', e);
-    }
+
         // Footer: 6-line format (ported from v5.7)
     const fmtK = (v) => { if (v === null || v === undefined || v === 0) return '0'; const n = Number(v); return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : n.toLocaleString(); };
     let tsToday = 0, tsMonth = 0, tsAllTime = 0;
