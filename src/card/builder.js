@@ -353,6 +353,134 @@ function buildStreamingCard(partialText, params = {}) {
 function buildCompleteCard(params) {
     const { text, elapsedMs, firstTokenLatencyMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, sessionKey, } = params;
     const elements = [];
+    // System resource panel (top-most)
+    try {
+        const cp = require('child_process');
+        const os5 = require('os');
+        let gpuUtil = '', gpuMemUsed = '', gpuMemTotal = '', gpuTemp = '';
+        let cpuPct = '';
+        let ramUsedG = '', ramTotalG = '', swapUsedG = '', swapTotalG = '';
+        let procCount = '';
+        let uptimeStr = '';
+        // GPU via nvidia-smi
+        try {
+            const raw = cp.execSync('nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader', { timeout: 5000, encoding: 'utf8' });
+            const parts = raw.trim().split(', ');
+            if (parts.length >= 4) {
+                gpuUtil = parts[0].trim();
+                const mu = parseInt(parts[1].trim());
+                const mt = parseInt(parts[2].trim());
+                if (!isNaN(mu)) gpuMemUsed = (mu / 1024).toFixed(1) + 'G';
+                if (!isNaN(mt)) gpuMemTotal = (mt / 1024).toFixed(0) + 'G';
+                gpuTemp = parts[3].trim() + '\u00b0C';
+            }
+        } catch (_) {}
+        // CPU via os module
+        try {
+            const cpus = os5.cpus();
+            if (cpus && cpus.length > 0) {
+                let totalIdle = 0, totalAll = 0;
+                for (const cpu of cpus) {
+                    for (const t of Object.values(cpu.times)) totalAll += t;
+                    totalIdle += cpu.times.idle;
+                }
+                cpuPct = Math.round((1 - totalIdle / totalAll) * 100) + '%';
+            }
+        } catch (_) {}
+        // RAM via os module
+        try {
+            const total = os5.totalmem();
+            const free = os5.freemem();
+            const used = total - free;
+            if (total > 0) {
+                ramTotalG = (total / 1073741824).toFixed(0);
+                ramUsedG = (used / 1073741824).toFixed(1);
+            }
+        } catch (_) {}
+        // Process count
+        try { procCount = parseInt(cp.execSync('ps aux | wc -l', { timeout: 3000, encoding: 'utf8' }).trim()) + '\u4e2a'; } catch (_) {}
+        // Uptime
+        try {
+            const up = os5.uptime();
+            const days = Math.floor(up / 86400);
+            const hrs = Math.floor((up % 86400) / 3600);
+            const mins = Math.floor((up % 3600) / 60);
+            uptimeStr = days + '\u5929 ' + hrs + '\u5c0f\u65f6 ' + mins + '\u5206\u949f';
+        } catch (_) {}
+        const hasGPU = gpuUtil !== '';
+        const hasCPU = cpuPct !== '';
+        const hasRAM = ramUsedG !== '' && ramTotalG !== '';
+        if (hasGPU || hasCPU || hasRAM) {
+            const headParts = ['\ud83d\udda5\ufe0f'];
+            if (hasGPU) headParts.push('GPU ' + gpuUtil + ' \u00b7 ' + gpuTemp + ' \u00b7 VRAM ' + gpuMemUsed + '/' + gpuMemTotal);
+            if (hasRAM) headParts.push('\ud83d\udc0f ' + ramUsedG + 'G/' + ramTotalG + 'G');
+            const zhHead = headParts.join(' ');
+            const enHead = zhHead;
+            // Build body
+            let bodyMd = '\ud83d\udda5\ufe0f \u7cfb\u7edf\u8d44\u6e90\n';
+            if (hasGPU) {
+                const gu = parseInt(gpuUtil);
+                const bb = Math.round(gu / 100 * 14);
+                bodyMd += 'GPU \u5229\u7528\u7387     ' + '\u2588'.repeat(Math.max(0, bb)) + '\u2591'.repeat(Math.max(0, 14 - bb)) + '  ' + gpuUtil + '\n';
+                const mu = parseFloat(gpuMemUsed);
+                const mt = parseFloat(gpuMemTotal);
+                const mp = Math.round(mu / mt * 100);
+                const bm = Math.round(mp / 100 * 14);
+                bodyMd += 'GPU \u663e\u5b58       ' + '\u2588'.repeat(Math.max(0, bm)) + '\u2591'.repeat(Math.max(0, 14 - bm)) + '  ' + gpuMemUsed + ' / ' + gpuMemTotal + ' (' + mp + '%)\n';
+                bodyMd += 'GPU \u6e29\u5ea6       ' + gpuTemp + '\n';
+            }
+            if (hasCPU) {
+                const cu = parseInt(cpuPct);
+                const bc = Math.round(cu / 100 * 14);
+                bodyMd += 'CPU \u603b\u5229\u7528\u7387  ' + '\u2588'.repeat(Math.max(0, bc)) + '\u2591'.repeat(Math.max(0, 14 - bc)) + '  ' + cpuPct + '\n';
+            }
+            if (hasRAM) {
+                const ru = parseFloat(ramUsedG);
+                const rt = parseFloat(ramTotalG);
+                const rp = Math.round(ru / rt * 100);
+                const br = Math.round(rp / 100 * 14);
+                bodyMd += '\u5185\u5b58\u5360\u7528     ' + '\u2588'.repeat(Math.max(0, br)) + '\u2591'.repeat(Math.max(0, 14 - br)) + '  ' + ramUsedG + 'G / ' + ramTotalG + 'G (' + rp + '%)\n';
+            }
+            if (procCount || uptimeStr) {
+                const meta = [];
+                if (procCount) meta.push('\u8fdb\u7a0b ' + procCount);
+                if (uptimeStr) meta.push('\u5df2\u8fd0\u884c ' + uptimeStr);
+                if (meta.length > 0) bodyMd += meta.join(' \u00b7 ');
+            }
+            elements.push({
+                tag: 'collapsible_panel',
+                expanded: false,
+                header: {
+                    title: {
+                        tag: 'plain_text',
+                        content: zhHead,
+                        i18n_content: { zh_cn: zhHead, en_us: enHead },
+                        text_color: 'grey',
+                        text_size: 'notation',
+                    },
+                    vertical_align: 'center',
+                    icon: {
+                        tag: 'standard_icon',
+                        token: 'down-small-ccm_outlined',
+                        color: 'grey',
+                        size: '16px 16px',
+                    },
+                    icon_position: 'right',
+                    icon_expanded_angle: -180,
+                },
+                border: { color: 'grey', corner_radius: '5px' },
+                vertical_spacing: '4px',
+                padding: '8px 8px 8px 8px',
+                elements: [
+                    {
+                        tag: 'markdown',
+                        content: bodyMd,
+                        text_size: 'notation',
+                    },
+                ],
+            });
+        }
+    } catch (_) {}
     if (showToolUse) {
         elements.push(buildToolUsePanel({
             toolUseSteps,
