@@ -97,11 +97,15 @@ npm install -g @larksuite/openclaw-lark@latest
 cp -a /path/to/node_modules/@larksuite/openclaw-lark ~/.openclaw/extensions/openclaw-lark
 
 # 2. 覆盖源码
-# 将本仓库 src/ 目录下文件覆盖到 ~/.openclaw/extensions/openclaw-lark/src/
+# 方式一：手动复制
+# cp src/card/*.js ~/.openclaw/extensions/openclaw-lark/src/card/
+# cp src/channel/*.js ~/.openclaw/extensions/openclaw-lark/src/channel/  (可选，token统计)
+# cp src/core/*.js ~/.openclaw/extensions/openclaw-lark/src/core/  (可选，footer配置)
+# 方式二：使用部署脚本 (推荐)
+# bash deploy.sh
 
-# 3. 配置 verbose（必须）
-# 在 openclaw.json 中添加：
-# "agents": { "defaults": { "verboseDefault": "on" } }
+# 3. 配置 verbose（必须！否则进度面板不显示）
+openclaw config set agents.defaults.verboseDefault on
 
 # 4. 重启网关
 systemctl --user restart openclaw-gateway

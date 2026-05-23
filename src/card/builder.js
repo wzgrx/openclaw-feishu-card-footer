@@ -291,7 +291,6 @@ function buildCardContent(state, data = {}) {
                 firstTokenLatencyMs: data.firstTokenLatencyMs,
                 footer: data.footer,
                 footerMetrics: data.footerMetrics,
-                sessionKey: data.sessionKey,
             });
         case 'confirm':
             return buildConfirmCard(data.confirmData);
@@ -351,7 +350,7 @@ function buildStreamingCard(partialText, params = {}) {
     };
 }
 function buildCompleteCard(params) {
-    const { text, elapsedMs, firstTokenLatencyMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, sessionKey, } = params;
+    const { text, elapsedMs, firstTokenLatencyMs, isError, reasoningText, reasoningElapsedMs, toolUseSteps, toolUseTitleSuffix, toolUseElapsedMs, showToolUse = true, isAborted, footer, footerMetrics, } = params;
     const elements = [];
     // System resource panel (top-most)
     try {

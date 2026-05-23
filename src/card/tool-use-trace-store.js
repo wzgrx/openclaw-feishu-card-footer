@@ -16,7 +16,6 @@ exports.hasToolUseTraceRun = hasToolUseTraceRun;
 exports.recordToolUseStart = recordToolUseStart;
 exports.recordToolUseEnd = recordToolUseEnd;
 exports.getToolUseTraceSteps = getToolUseTraceSteps;
-exports.getToolUseTraceStore = getToolUseTraceStore;
 exports.sanitizeTraceValue = sanitizeTraceValue;
 exports._resetForTesting = _resetForTesting;
 const reasoning_utils_1 = require("./reasoning-utils.js");
@@ -144,23 +143,6 @@ function getToolUseTraceSteps(sessionKey) {
         }
         return { ...step };
     });
-}
-function getToolUseTraceStore() {
-    const result = {};
-    const now = Date.now();
-    for (const [key, state] of sessionTraces) {
-        if (now - state.updatedAt > TRACE_TTL_MS) {
-            sessionTraces.delete(key);
-            continue;
-        }
-        result[key] = state.steps.map((step) => {
-            if (step.status === 'running' && now - step.startedAt > STEP_RUNNING_TIMEOUT_MS) {
-                return { ...step, status: 'error', error: 'timed out', finishedAt: now };
-            }
-            return { ...step };
-        });
-    }
-    return result;
 }
 function findPendingStepIndex(steps, toolName, params, toolCallId) {
     if (toolCallId) {
