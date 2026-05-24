@@ -7,6 +7,12 @@
  *
  * Used by StreamingCardController → TokenAggregator to publish
  * session_tokens_accrued events without direct module coupling.
+ *
+ * TaskManager also publishes task progress events:
+ *   task_progress   { taskId, name, progress, status, elapsedMs, etaMs }
+ *   task_completed  { taskId, name, status, elapsedMs }
+ *   task_error      { taskId, name, error }
+ *   task_list       [ { taskId, name, type, progress, status } ]
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.subscribe = subscribe;

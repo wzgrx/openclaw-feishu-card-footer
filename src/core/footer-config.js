@@ -29,6 +29,7 @@ exports.DEFAULT_FOOTER_CONFIG = {
     cost: true,
     todayTokens: true,
     monthTokens: true,
+    backgroundTasks: true,
 };
 // ---------------------------------------------------------------------------
 // Resolver
@@ -50,6 +51,7 @@ function resolveFooterConfig(cfg) {
         context: cfg.context ?? exports.DEFAULT_FOOTER_CONFIG.context,
         model: cfg.model ?? exports.DEFAULT_FOOTER_CONFIG.model,
         cost: cfg.cost ?? exports.DEFAULT_FOOTER_CONFIG.cost,
+        backgroundTasks: cfg.backgroundTasks ?? exports.DEFAULT_FOOTER_CONFIG.backgroundTasks,
         todayTokens: cfg.todayTokens ?? exports.DEFAULT_FOOTER_CONFIG.todayTokens,
         monthTokens: cfg.monthTokens ?? exports.DEFAULT_FOOTER_CONFIG.monthTokens,
     };

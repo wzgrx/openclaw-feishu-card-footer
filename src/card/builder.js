@@ -27,6 +27,7 @@ const tool_use_display_1 = require("./tool-use-display.js");
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const TASK_DIR = '/tmp/openclaw-tasks';
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -250,6 +251,23 @@ function formatFooterRuntimeSegments(params) {
 /**
  * Calculate total cost from model pricing and usage metrics.
  */
+/** Read active background tasks from the task progress directory. */
+function readActiveTasks() {
+    try {
+        if (!fs.existsSync(TASK_DIR)) return [];
+        const files = fs.readdirSync(TASK_DIR).filter(f => f.endsWith('.json'));
+        const tasks = [];
+        for (const f of files) {
+            try {
+                const raw = fs.readFileSync(path.join(TASK_DIR, f), 'utf-8');
+                const t = JSON.parse(raw);
+                if (t.taskId && t.status) tasks.push(t);
+            } catch (_) {}
+        }
+        return tasks;
+    } catch (_) { return []; }
+}
+
 function calcModelCost(metrics, inputPrice, outputPrice, cacheReadPrice) {
     if (!metrics || inputPrice == null || outputPrice == null)
         return 0;
@@ -713,6 +731,29 @@ function buildCompleteCard(params) {
         const costStr = totalCost > 0 ? `·¥${totalCost.toFixed(2)}` : '';
         footerZhLines.push(`💰 ${provider}${costStr}·${modelName}`);
         footerEnLines.push(`💰 ${provider}${costStr}·${modelName}`);
+    }
+    // Line 7: background task progress (optional)
+    const bgTasks = params.backgroundTasks || readActiveTasks();
+    if (bgTasks.length > 0) {
+        const active = bgTasks.filter(t => t.status === 'running');
+        if (active.length > 0) {
+            const t = active[0];
+            const pct = Math.min(100, Math.max(0, t.progress || 0));
+            const barW = 10;
+            const barF = Math.round((pct / 100) * barW);
+            const bar = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
+            const elapsed = t.elapsedMs ? formatElapsed(t.elapsedMs) : '';
+            const eta = t.etaMs > 0 ? 'ETA ' + formatElapsed(t.etaMs) : '';
+            const taskIcon = { download: '\ud83d\udce5', compile: '\ud83d\udd27', generic: '\ud83d\udd04' }[t.type] || '\ud83d\udd04';
+            const taskLine = taskIcon + ' ' + t.name + ' ' + bar + ' ' + pct + '%' + (elapsed ? ' \u23f1\ufe0f ' + elapsed : '');
+            if (eta) {
+                footerZhLines.push(taskLine + ' \u00b7 ETA ' + eta);
+                footerEnLines.push(taskLine + ' \u00b7 ETA ' + eta);
+            } else {
+                footerZhLines.push(taskLine);
+                footerEnLines.push(taskLine);
+            }
+        }
     }
     if (footerZhLines.length > 0) {
         const footerText = footerZhLines.join('\n');
