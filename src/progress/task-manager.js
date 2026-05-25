@@ -234,6 +234,7 @@ class TaskManager {
  * Set Feishu API credentials for sending independent progress cards.
  */
 TaskManager.prototype.setCredentials = function(appId, appSecret, domain) {
+    console.log("[TaskManager] setCredentials called:", appId ? "has appId" : "NO appId");
     this._feishuAppId = appId;
     this._feishuAppSecret = appSecret;
     this._feishuDomain = domain || 'feishu';
@@ -255,6 +256,7 @@ TaskManager.prototype._resolveApiBase = function() {
  * Called from _scan() for each task with chatId.
  */
 TaskManager.prototype._updateStreamingCard = async function(task) {
+    console.log("[TaskManager] _updateStreamingCard called:", task.taskId, "feishuAppId:", this._feishuAppId ? "yes" : "NO");
     if (!this._feishuAppId) return;
     if (!task.chatId) return;
     try {
@@ -274,7 +276,7 @@ TaskManager.prototype._updateStreamingCard = async function(task) {
                 body: JSON.stringify({ app_id: this._feishuAppId, app_secret: this._feishuAppSecret })
             });
             const data = await resp.json();
-            if (data.code === 0 && data.tenant_access_token) token = data.tenant_access_token;
+            if (data.code === 0 && data.tenant_access_token) { token = data.tenant_access_token; console.log("[TaskManager] Got token:", token.slice(0,20)+"..."); } else { console.log("[TaskManager] Token error:", data.code, data.msg); }
         } catch (e) { return; }
         if (!token) return;
 
