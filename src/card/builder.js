@@ -380,90 +380,99 @@ function buildCompleteCard(params) {
             titleSuffix: toolUseTitleSuffix,
         }));
     }
+
+// ── 📊 Progress Panel helper ──
+function buildProgressPanel(steps, extraContent) {
+    if (!steps || steps.length === 0) return null;
+    const pSteps = steps;
+    const pDone = pSteps.filter(function(s) { return s.status === 'success' || s.status === 'error'; }).length;
+    const pTotal = pSteps.length;
+    const pPct = Math.round((pDone / pTotal) * 100);
+    const barW = 16;
+    const barF = Math.round((pPct / 100) * barW);
+    const barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
+    const allDone = pDone === pTotal;
+    const statusIcon = allDone ? '\u2705' : (pDone > 0 ? '\ud83d\udd04' : '\u23f3');
+    const statusText = allDone ? '\u5b8c\u6210' : '\u8fdb\u884c\u4e2d';
+    const zhHeader = '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6 ' + statusIcon + ' ' + pDone + '/' + pTotal + ' ' + statusText;
+    const enHeader = '\ud83d\udcca Progress ' + statusIcon + ' ' + pDone + '/' + pTotal + ' ' + (allDone ? 'Complete' : 'Running');
+    let bodyMd = barS + ' ' + pPct + '%\n';
+    bodyMd += '\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21';
+    for (const st of pSteps) {
+        const name = st.title || st.toolName || 'tool';
+        const dur = st.durationMs || st.duration || 0;
+        let icon, suffix = '';
+        if (st.status === 'success') {
+            icon = '\u2714';
+            suffix = dur ? ' ' + formatElapsed(dur) : '';
+        } else if (st.status === 'error') {
+            icon = '\u2716';
+        } else if (st.status === 'running' || !st.status) {
+            icon = '\u25e6';
+            if (st.progress != null) {
+                const bw = 8;
+                const bf = Math.round((st.progress / 100) * bw);
+                suffix += ' ' + st.progress + '% ' + '\u2588'.repeat(bf) + '\u2591'.repeat(bw - bf);
+            }
+            if (dur) {
+                suffix += ' (' + formatElapsed(dur);
+                if (st.estimated) suffix += '/' + formatElapsed(st.estimated);
+                suffix += ')';
+            }
+        } else if (st.status === 'pending') {
+            icon = '\u23f3';
+            suffix = ' \u7b49\u5f85\u4e2d';
+        } else {
+            continue;
+        }
+        bodyMd += '\n \u25a0 ' + name + ' ' + icon + suffix;
+    }
+    // Extra content from bridge file
+    if (extraContent) {
+        try {
+            var extra = String(extraContent).trim();
+            if (extra) bodyMd += '\n' + extra;
+        } catch (_) {}
+    }
+    return {
+        tag: 'collapsible_panel',
+        expanded: false,
+        header: {
+            title: {
+                tag: 'plain_text',
+                content: zhHeader,
+                i18n_content: {
+                    zh_cn: zhHeader,
+                    en_us: enHeader,
+                },
+                text_color: 'grey',
+                text_size: 'notation',
+            },
+            vertical_align: 'center',
+            icon: {
+                tag: 'standard_icon',
+                token: 'down-small-ccm_outlined',
+                color: 'grey',
+                size: '16px 16px',
+            },
+            icon_position: 'right',
+            icon_expanded_angle: -180,
+        },
+        border: { color: 'grey', corner_radius: '5px' },
+        vertical_spacing: '4px',
+        padding: '8px 8px 8px 8px',
+        elements: [{
+            tag: 'markdown',
+            content: bodyMd,
+            text_size: 'notation',
+        }],
+    };
+}
+
     // Progress collapsible panel (after tool panel, before content)
     try {
-        const pSteps = toolUseSteps || [];
-        if (pSteps.length > 0) {
-            const pDone = pSteps.filter(s => s.status === 'success' || s.status === 'error').length;
-            const pTotal = pSteps.length;
-            const pPct = Math.round((pDone / pTotal) * 100);
-            const barW = 16;
-            const barF = Math.round((pPct / 100) * barW);
-            const barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
-            const allDone = pDone === pTotal;
-            // Header
-            const statusIcon = allDone ? '\u2705' : (pDone > 0 ? '\ud83d\udd04' : '\u23f3');
-            const statusText = allDone ? '\u5b8c\u6210' : '\u8fdb\u884c\u4e2d';
-            const zhHeader = '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6 ' + statusIcon + ' ' + pDone + '/' + pTotal + ' ' + statusText;
-            const enHeader = '\ud83d\udcca Progress ' + statusIcon + ' ' + pDone + '/' + pTotal + ' ' + (allDone ? 'Complete' : 'Running');
-            // Body markdown
-            let bodyMd = barS + ' ' + pPct + '%\n';
-            bodyMd += '\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21';
-            for (const st of pSteps) {
-                const name = st.title || st.toolName || 'tool';
-                const dur = st.durationMs || st.duration || 0;
-                let icon, suffix = '';
-                if (st.status === 'success') {
-                    icon = '\u2714';
-                    suffix = dur ? ' ' + formatElapsed(dur) : '';
-                } else if (st.status === 'error') {
-                    icon = '\u2716';
-                } else if (st.status === 'running' || !st.status) {
-                    icon = '\u25e6';
-                    if (st.progress != null) {
-                        const bw = 8;
-                        const bf = Math.round((st.progress / 100) * bw);
-                        suffix += ' ' + st.progress + '% ' + '\u2588'.repeat(bf) + '\u2591'.repeat(bw - bf);
-                    }
-                    if (dur) {
-                        suffix += ' (' + formatElapsed(dur);
-                        if (st.estimated) suffix += '/' + formatElapsed(st.estimated);
-                        suffix += ')';
-                    }
-                } else if (st.status === 'pending') {
-                    icon = '\u23f3';
-                    suffix = ' \u7b49\u5f85\u4e2d';
-                } else {
-                    continue;
-                }
-                bodyMd += '\n \u25a0 ' + name + ' ' + icon + suffix;
-            }
-            elements.push({
-                tag: 'collapsible_panel',
-                expanded: false,
-                header: {
-                    title: {
-                        tag: 'plain_text',
-                        content: zhHeader,
-                        i18n_content: {
-                            zh_cn: zhHeader,
-                            en_us: enHeader,
-                        },
-                        text_color: 'grey',
-                        text_size: 'notation',
-                    },
-                    vertical_align: 'center',
-                    icon: {
-                        tag: 'standard_icon',
-                        token: 'down-small-ccm_outlined',
-                        color: 'grey',
-                        size: '16px 16px',
-                    },
-                    icon_position: 'right',
-                    icon_expanded_angle: -180,
-                },
-                border: { color: 'grey', corner_radius: '5px' },
-                vertical_spacing: '4px',
-                padding: '8px 8px 8px 8px',
-                elements: [
-                    {
-                        tag: 'markdown',
-                        content: bodyMd,
-                        text_size: 'notation',
-                    },
-                ],
-            });
-        }
+        const pp = buildProgressPanel(toolUseSteps);
+        if (pp) elements.push(pp);
     } catch (e) {
         console.error('[PanelProgress] error:', e);
     }
@@ -908,40 +917,17 @@ function buildStreamingPreAnswerCard(params) {
     if (showToolUse) {
         elements.push(hasSteps ? buildStreamingToolUseActivePanel({ steps: steps, elapsedMs }) : buildStreamingToolUsePendingPanel());
     }
-    // Read bridge file for background task progress
+    // 📊 Progress panel (tool summary + optional bridge content)
+    var bridgeContent = '';
     try {
-        const fs = require('fs');
-        const bridgePath = '/tmp/task-progress/' + chatId + '.txt';
+        var fs = require('fs');
+        var bridgePath = '/tmp/task-progress/' + chatId + '.txt';
         if (chatId && fs.existsSync(bridgePath)) {
-            const bridgeText = fs.readFileSync(bridgePath, 'utf-8').trim();
-            if (bridgeText) {
-                elements.push({
-                    tag: 'collapsible_panel',
-                    expanded: true,
-                    header: {
-                        title: {
-                            tag: 'plain_text',
-                            content: '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6',
-                            i18n_content: {
-                                zh_cn: '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6',
-                                en_us: '\ud83d\udcca Task Progress',
-                            },
-                            text_color: 'grey',
-                            text_size: 'notation',
-                        },
-                    },
-                    border: { color: 'grey', corner_radius: '5px' },
-                    vertical_spacing: '4px',
-                    padding: '8px 8px 8px 8px',
-                    elements: [{
-                        tag: 'markdown',
-                        content: bridgeText,
-                        text_size: 'notation',
-                    }],
-                });
-            }
+            bridgeContent = fs.readFileSync(bridgePath, 'utf-8').trim();
         }
     } catch (_) {}
+    var pp = buildProgressPanel(steps, bridgeContent);
+    if (pp) elements.push(pp);
     elements.push({
         tag: 'markdown',
         content: '',
