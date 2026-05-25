@@ -1105,9 +1105,31 @@ function buildToolUsePanel(params) {
         zhTitleParts.push(titleSuffix.zh);
         enTitleParts.push(titleSuffix.en);
     }
+    // Add completion status if all steps complete
+    const pDone = toolUseSteps.filter(function(s) { return s.status === 'success' || s.status === 'error'; }).length;
+    const pTotal = toolUseSteps.length;
+    if (pTotal > 0 && pDone === pTotal) {
+        zhTitleParts.push('✅ ' + pDone + '/' + pTotal + ' 完成');
+        enTitleParts.push('✅ ' + pDone + '/' + pTotal + ' complete');
+    } else if (pTotal > 0) {
+        zhTitleParts.push(pDone + '/' + pTotal + ' 步');
+        enTitleParts.push(pDone + '/' + pTotal + ' step' + (pTotal === 1 ? '' : 's'));
+    }
     const stepElements = toolUseSteps.length > 0
         ? toolUseSteps.flatMap((step) => buildToolUseStepElements(step))
         : [buildToolUsePlaceholder()];
+    // Add execution summary when all steps complete
+    if (pTotal > 0 && pDone === pTotal) {
+        var pPct = Math.round((pDone / pTotal) * 100);
+        var barW = 16;
+        var barF = Math.round((pPct / 100) * barW);
+        var barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
+        stepElements.push({
+            tag: 'markdown',
+            content: barS + ' ' + pPct + '%\n\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21',
+            text_size: 'notation',
+        });
+    }
     return {
         tag: 'collapsible_panel',
         expanded: false,
