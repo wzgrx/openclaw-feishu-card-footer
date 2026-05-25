@@ -1009,22 +1009,8 @@ function buildStreamingToolUseActivePanel(params) {
         enParts.push('(' + d + ')');
         zhParts.push('(' + d + ')');
     }
-    // Build elements: step details + execution summary (when all done)
+    // Build elements: step details
     var panelElements = steps.flatMap(function(step) { return buildToolUseStepElements(step); });
-    if (allDone && pTotal > 0) {
-        // Add execution summary inside the panel
-        var pPct = Math.round((pDone / pTotal) * 100);
-        var barW = 16;
-        var barF = Math.round((pPct / 100) * barW);
-        var barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
-        var summaryMd = barS + ' ' + pPct + '%\n';
-        summaryMd += '\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21';
-        panelElements.push({
-            tag: 'markdown',
-            content: summaryMd,
-            text_size: 'notation',
-        });
-    }
     return {
         tag: 'collapsible_panel',
         expanded: true,
@@ -1118,18 +1104,6 @@ function buildToolUsePanel(params) {
     const stepElements = toolUseSteps.length > 0
         ? toolUseSteps.flatMap((step) => buildToolUseStepElements(step))
         : [buildToolUsePlaceholder()];
-    // Add execution summary when all steps complete
-    if (pTotal > 0 && pDone === pTotal) {
-        var pPct = Math.round((pDone / pTotal) * 100);
-        var barW = 16;
-        var barF = Math.round((pPct / 100) * barW);
-        var barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
-        stepElements.push({
-            tag: 'markdown',
-            content: barS + ' ' + pPct + '%\n\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21',
-            text_size: 'notation',
-        });
-    }
     return {
         tag: 'collapsible_panel',
         expanded: false,
