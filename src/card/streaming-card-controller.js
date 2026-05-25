@@ -568,6 +568,10 @@ class StreamingCardController {
     async onPartialReply(payload) {
         if (!this.shouldProceed('onPartialReply'))
             return;
+        // When streaming starts, update card with completed tool progress
+        if (!this.text.accumulatedText && this.cardKit.cardKitCardId) {
+            await this.updateToolUseStatus();
+        }
         // Use splitReasoningText (consistent with onDeliver/onReasoningStream)
         // to extract <think> tag content before stripping it from the answer.
         // Previously only stripReasoningTags was called, silently discarding

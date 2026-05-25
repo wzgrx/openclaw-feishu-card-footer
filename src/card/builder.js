@@ -383,7 +383,42 @@ function buildCompleteCard(params) {
 
 // ── 📊 Progress Panel helper ──
 function buildProgressPanel(steps, extraContent) {
-    if (!steps || steps.length === 0) return null;
+    if (!steps || steps.length === 0) {
+        // No steps data but might have bridge content
+        if (extraContent) {
+            try {
+                var bridgeStr = String(extraContent).trim();
+                if (bridgeStr) {
+                    return {
+                        tag: 'collapsible_panel',
+                        expanded: true,
+                        header: {
+                            title: {
+                                tag: 'plain_text',
+                                content: '\ud83d\udcca \u4efb\u52a1\u8fdb\u5ea6',
+                                i18n_content: {
+                                    zh_cn: '\ud83d\udcca \u4efb\u52a1\u8fdb\u5ea6',
+                                    en_us: '\ud83d\udcca Task Progress',
+                                },
+                                text_color: 'grey',
+                                text_size: 'notation',
+                            },
+                        },
+                        element_id: 'task_progress_panel',
+                        border: { color: 'grey', corner_radius: '5px' },
+                        vertical_spacing: '4px',
+                        padding: '8px 8px 8px 8px',
+                        elements: [{
+                            tag: 'markdown',
+                            content: bridgeStr,
+                            text_size: 'notation',
+                        }],
+                    };
+                }
+            } catch (_) {}
+        }
+        return null;
+    }
     const pSteps = steps;
     const pDone = pSteps.filter(function(s) { return s.status === 'success' || s.status === 'error'; }).length;
     const pTotal = pSteps.length;
@@ -461,6 +496,7 @@ function buildProgressPanel(steps, extraContent) {
         border: { color: 'grey', corner_radius: '5px' },
         vertical_spacing: '4px',
         padding: '8px 8px 8px 8px',
+        element_id: 'task_progress_panel',
         elements: [{
             tag: 'markdown',
             content: bodyMd,
