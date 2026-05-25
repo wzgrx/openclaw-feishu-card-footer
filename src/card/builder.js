@@ -505,13 +505,7 @@ function buildProgressPanel(steps, extraContent) {
     };
 }
 
-    // Progress collapsible panel (after tool panel, before content)
-    try {
-        const pp = buildProgressPanel(toolUseSteps);
-        if (pp) elements.push(pp);
-    } catch (e) {
-        console.error('[PanelProgress] error:', e);
-    }
+
     // Collapsible reasoning panel (before main content)
     if (reasoningText) {
         const dur = reasoningElapsedMs ? formatReasoningDuration(reasoningElapsedMs) : null;
