@@ -99,6 +99,7 @@ class TaskManager {
             if (!task.taskId) continue;
 
             const prev = this._tasks.get(task.taskId);
+            console.log("[TM] Poll:", task.taskId, task.name, task.progress+"%", "chatId:", task.chatId || "none");
             this._tasks.set(task.taskId, task);
 
             // Calculate ETA
@@ -120,7 +121,9 @@ class TaskManager {
             });
 
             // Write bridge file for streaming card to read
+            console.log("[TM] About to write bridge for", task.taskId);
             this._writeBridgeFile(task);
+            console.log("[TM] Bridge written for", task.taskId);
             this._updateStreamingCard(task).catch(function() {});
 
             // Publish completion / error
