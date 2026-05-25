@@ -24,6 +24,8 @@ const path = require('path');
 const os = require('os');
 const tokenStatsPath = path.join(os.homedir(), '.openclaw', 'token-stats.json');
 const mlog = (0, lark_logger_1.larkLogger)('channel/monitor');
+// Ensure TaskManager starts at plugin load time
+require('../progress/task-manager.js');
 // ---------------------------------------------------------------------------
 // Single-account monitor
 // ---------------------------------------------------------------------------
