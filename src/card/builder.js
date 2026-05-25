@@ -953,17 +953,6 @@ function buildStreamingPreAnswerCard(params) {
     if (showToolUse) {
         elements.push(hasSteps ? buildStreamingToolUseActivePanel({ steps: steps, elapsedMs }) : buildStreamingToolUsePendingPanel());
     }
-    // 📊 Progress panel (tool summary + optional bridge content)
-    var bridgeContent = '';
-    try {
-        var fs = require('fs');
-        var bridgePath = '/tmp/task-progress/' + chatId + '.txt';
-        if (chatId && fs.existsSync(bridgePath)) {
-            bridgeContent = fs.readFileSync(bridgePath, 'utf-8').trim();
-        }
-    } catch (_) {}
-    var pp = buildProgressPanel(steps, bridgeContent);
-    if (pp) elements.push(pp);
     elements.push({
         tag: 'markdown',
         content: '',
@@ -1003,14 +992,38 @@ function buildStreamingToolUseActivePanel(params) {
     const { steps, elapsedMs } = params;
     const enParts = ['Tool use'];
     const zhParts = ['工具执行'];
-    if (steps.length > 0) {
-        enParts.push(`${steps.length} step${steps.length === 1 ? '' : 's'}`);
-        zhParts.push(`${steps.length} 步`);
+    // Determine if all steps completed
+    const pDone = steps.filter(function(s) { return s.status === 'success' || s.status === 'error'; }).length;
+    const pTotal = steps.length;
+    const allDone = pDone === pTotal;
+    if (allDone && pTotal > 0) {
+        // Show completion status in header
+        enParts.push('✅ ' + pDone + '/' + pTotal + ' complete');
+        zhParts.push('✅ ' + pDone + '/' + pTotal + ' 完成');
+    } else if (steps.length > 0) {
+        enParts.push(steps.length + ' step' + (steps.length === 1 ? '' : 's'));
+        zhParts.push(steps.length + ' 步');
     }
     if (elapsedMs != null && elapsedMs > 0) {
-        const d = formatElapsed(elapsedMs);
-        enParts.push(`(${d})`);
-        zhParts.push(`(${d})`);
+        var d = formatElapsed(elapsedMs);
+        enParts.push('(' + d + ')');
+        zhParts.push('(' + d + ')');
+    }
+    // Build elements: step details + execution summary (when all done)
+    var panelElements = steps.flatMap(function(step) { return buildToolUseStepElements(step); });
+    if (allDone && pTotal > 0) {
+        // Add execution summary inside the panel
+        var pPct = Math.round((pDone / pTotal) * 100);
+        var barW = 16;
+        var barF = Math.round((pPct / 100) * barW);
+        var barS = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
+        var summaryMd = barS + ' ' + pPct + '%\n';
+        summaryMd += '\ud83d\udee0\ufe0f \u5de5\u5177\u6267\u884c \u00b7 ' + pTotal + ' \u6b21';
+        panelElements.push({
+            tag: 'markdown',
+            content: summaryMd,
+            text_size: 'notation',
+        });
     }
     return {
         tag: 'collapsible_panel',
@@ -1018,10 +1031,10 @@ function buildStreamingToolUseActivePanel(params) {
         header: {
             title: {
                 tag: 'plain_text',
-                content: `🛠️ ${enParts.join(' · ')}`,
+                content: '\ud83d\udee0\ufe0f ' + enParts.join(' \u00b7 '),
                 i18n_content: {
-                    zh_cn: `🛠️ ${zhParts.join(' · ')}`,
-                    en_us: `🛠️ ${enParts.join(' · ')}`,
+                    zh_cn: '\ud83d\udee0\ufe0f ' + zhParts.join(' \u00b7 '),
+                    en_us: '\ud83d\udee0\ufe0f ' + enParts.join(' \u00b7 '),
                 },
                 text_color: 'grey',
                 text_size: 'notation',
@@ -1039,7 +1052,7 @@ function buildStreamingToolUseActivePanel(params) {
         border: { color: 'grey', corner_radius: '5px' },
         vertical_spacing: '4px',
         padding: '8px 8px 8px 8px',
-        elements: steps.flatMap((step) => buildToolUseStepElements(step)),
+        elements: panelElements,
     };
 }
 function toCardKit2(card) {
