@@ -3,18 +3,28 @@
  * Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
  * SPDX-License-Identifier: MIT
  *
- * Task Manager — monitors background task progress files and publishes
- * events so the Feishu card footer can display real-time progress.
+ * Task Manager v2 — monitors background task progress files, sends
+ * independent Feishu progress cards, detects stalled tasks.
  *
- * Protocol:
- *   Background tasks write progress to /tmp/openclaw-tasks/{taskId}.json
- *   TaskManager polls these files every 3s and publishes events.
+ * Protocol (compatible with openclaw-task-watchdog):
+ *   Tasks write progress to /tmp/openclaw-tasks/{taskId}.json
+ *   TaskManager polls files every 3s, publishes events, sends Feishu cards.
  *
- * Events published on the event-bus:
- *   task_progress   { taskId, name, type, progress, status, elapsedMs, etaMs }
- *   task_completed  { taskId, name, status, elapsedMs }
- *   task_error      { taskId, name, error }
- *   task_list       [ { taskId, name, type, progress, status, ... } ]
+ * Task file format:
+ *   {
+ *     taskId: string,        // unique id
+ *     name: string,          // human-readable name
+ *     type: string,          // download|compile|git_clone|transcribe|generic
+ *     status: string,        // running|success|error|stalled
+ *     progress: number,      // 0-100
+ *     chatId: string,        // Feishu chat to send progress card to
+ *     __progressCardId: string, // (internal) Feishu message_id for card updates
+ *     startTime: number,     // Date.now() at creation
+ *     lastUpdated: number,   // Date.now() at last write
+ *     elapsedMs: number,     // auto-calculated
+ *     error: string,         // error message if status=error
+ *     logFile: string,       // optional log file path
+ *   }
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TaskManager = void 0;
@@ -28,8 +38,10 @@ const eventBus = require("../channel/event-bus");
 // ---------------------------------------------------------------------------
 const TASK_DIR = "/tmp/openclaw-tasks";
 const BRIDGE_DIR = "/tmp/task-progress";
-const POLL_MS = 3000;         // 轮询间隔
-const MAX_AGE_MS = 86400000;  // 24h 后清理已完成任务
+const POLL_MS = 3000;                // 轮询间隔
+const STALE_THRESHOLD_MS = 300000;   // 5 分钟无更新 → stalled
+const MAX_AGE_MS = 86400000;         // 24h 后清理已完成任务
+const NOTIFIED_TTL_MS = 600000;      // 幂等通知 10 分钟 TTL
 
 // ---------------------------------------------------------------------------
 // TaskManager
@@ -38,13 +50,22 @@ class TaskManager {
     constructor(taskDir, pollMs) {
         this._taskDir = taskDir || TASK_DIR;
         this._pollMs = pollMs || POLL_MS;
-        this._tasks = new Map();   // taskId → cached task
+        this._tasks = new Map();        // taskId → cached task
+        this._notifiedKeys = new Map(); // idempotency key → timestamp
+        this._sentCards = new Map();    // taskId → { messageId, firstSentAt }
         this._timer = null;
+        this._listTimer = null;
+        this._stallTimer = null;
+        this._feishuAppId = null;
+        this._feishuAppSecret = null;
+        this._feishuDomain = 'feishu';
+        this._tenantToken = null;
+        this._tokenExpiresAt = 0;
         this._setupTaskDir();
-    this._setupBridgeDir();
+        this._setupBridgeDir();
     }
 
-    /** Ensure the task directory exists (create on demand). */
+    /** Ensure the task directory exists. */
     _setupTaskDir() {
         try {
             if (!fs.existsSync(this._taskDir)) {
@@ -52,63 +73,66 @@ class TaskManager {
             }
         } catch (_) { /* best effort */ }
     }
+
     /** Ensure bridge directory exists. */
     _setupBridgeDir() {
         try { fs.mkdirSync(BRIDGE_DIR, { recursive: true }); } catch (_) {}
     }
 
-    /** Start polling. */
+    /** Start polling and stall detection. */
     start() {
         if (this._timer) return;
         // Immediate scan
         this._scan();
         this._timer = setInterval(() => this._scan(), this._pollMs);
-        // Publish full list every 5 scans
+        // Publish full list every 15s
         this._listTimer = setInterval(() => this._publishList(), this._pollMs * 5);
+        // Stall detection every 30s
+        this._stallTimer = setInterval(() => this._checkStale(), 30000);
+        console.log("[TaskManager] started (poll=" + this._pollMs + "ms)");
     }
 
     /** Stop polling. */
     stop() {
-        if (this._timer) {
-            clearInterval(this._timer);
-            this._timer = null;
-        }
-        if (this._listTimer) {
-            clearInterval(this._listTimer);
-            this._listTimer = null;
-        }
+        if (this._timer) { clearInterval(this._timer); this._timer = null; }
+        if (this._listTimer) { clearInterval(this._listTimer); this._listTimer = null; }
+        if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
+        // Cleanup caches
+        this._tasks.clear();
+        this._notifiedKeys.clear();
+        this._sentCards.clear();
+        console.log("[TaskManager] stopped");
     }
 
-    /** Scan the task directory for progress files. */
+    // ── Scan task directory ───────────────────────────────────────────────
+
     _scan() {
         let files;
-        try {
-            files = fs.readdirSync(this._taskDir);
-        } catch (_) { return; }
+        try { files = fs.readdirSync(this._taskDir); } catch (_) { return; }
 
         const now = Date.now();
         for (const f of files) {
             if (!f.endsWith(".json")) continue;
             const fp = path.join(this._taskDir, f);
             let raw;
-            try {
-                raw = fs.readFileSync(fp, "utf-8");
-            } catch (_) { continue; }
+            try { raw = fs.readFileSync(fp, "utf-8"); } catch (_) { continue; }
             let task;
             try { task = JSON.parse(raw); } catch (_) { continue; }
             if (!task.taskId) continue;
 
             const prev = this._tasks.get(task.taskId);
-            console.log("[TM] Poll:", task.taskId, task.name, task.progress+"%", "chatId:", task.chatId || "none");
+            task.lastUpdated = task.lastUpdated || now;
             this._tasks.set(task.taskId, task);
 
-            // Calculate ETA
-            const etaMs = this._calcEta(task);
+            // Auto-calculate elapsedMs
+            if (task.startTime) {
+                task.elapsedMs = now - task.startTime;
+            }
 
-            // Detect status transitions
+            const etaMs = this._calcEta(task);
             const prevStatus = prev ? prev.status : undefined;
 
-            // Publish progress (always)
+            // Publish progress event
             eventBus.publish("task_progress", {
                 taskId: task.taskId,
                 name: task.name,
@@ -118,15 +142,16 @@ class TaskManager {
                 elapsedMs: task.elapsedMs ?? 0,
                 etaMs,
                 logFile: task.logFile,
+                chatId: task.chatId,
             });
 
-            // Write bridge file for streaming card to read
-            console.log("[TM] About to write bridge for", task.taskId);
+            // Write bridge file for builder.js to read
             this._writeBridgeFile(task);
-            console.log("[TM] Bridge written for", task.taskId);
-            this._updateStreamingCard(task).catch(function() {});
 
-            // Publish completion / error
+            // Send/update independent Feishu progress card
+            this._updateProgressCard(task).catch(function() {});
+
+            // Publish completion / error (only once)
             if (task.status === "success" && prevStatus !== "success") {
                 eventBus.publish("task_completed", {
                     taskId: task.taskId,
@@ -134,6 +159,7 @@ class TaskManager {
                     status: "success",
                     elapsedMs: task.elapsedMs ?? 0,
                 });
+                this._notifyStale = false;
             } else if (task.status === "error" && prevStatus !== "error") {
                 eventBus.publish("task_error", {
                     taskId: task.taskId,
@@ -141,19 +167,49 @@ class TaskManager {
                     error: task.error || "Unknown error",
                     elapsedMs: task.elapsedMs ?? 0,
                 });
+            } else if (task.status === "stalled" && prevStatus !== "stalled") {
+                eventBus.publish("task_error", {
+                    taskId: task.taskId,
+                    name: task.name,
+                    error: "Task stalled — no progress update for " + Math.round(STALE_THRESHOLD_MS / 60000) + " minutes",
+                    elapsedMs: task.elapsedMs ?? 0,
+                });
             }
 
             // Clean up old completed tasks
-            if (task.status === "success" || task.status === "error") {
-                const age = now - (task.startTime || task.elapsedMs || 0);
+            if (task.status === "success" || task.status === "error" || task.status === "stalled") {
+                const age = now - task.startTime;
                 if (age > MAX_AGE_MS) {
                     try { fs.unlinkSync(fp); } catch (_) {}
+                    this._tasks.delete(task.taskId);
                 }
             }
         }
     }
 
-    /** Rough ETA estimate based on progress and elapsed time. */
+    // ── Stall detection ────────────────────────────────────────────────────
+
+    _checkStale() {
+        const now = Date.now();
+        for (const [taskId, task] of this._tasks) {
+            if (task.status !== "running") continue;
+            const lastUp = task.lastUpdated || task.startTime || now;
+            const age = now - lastUp;
+            if (age > STALE_THRESHOLD_MS) {
+                // Mark as stalled in the task file
+                task.status = "stalled";
+                task.error = "No progress update for " + Math.round(age / 60000) + " minutes";
+                const fp = path.join(this._taskDir, taskId + ".json");
+                try {
+                    fs.writeFileSync(fp, JSON.stringify(task, null, 2));
+                } catch (_) {}
+                console.log("[TaskManager] STALLED:", taskId, task.name, "age=" + Math.round(age/1000) + "s");
+            }
+        }
+    }
+
+    // ── ETA calculation ────────────────────────────────────────────────────
+
     _calcEta(task) {
         const p = task.progress;
         const e = task.elapsedMs;
@@ -162,7 +218,8 @@ class TaskManager {
         return Math.round((e / p) * (100 - p));
     }
 
-    /** Publish the full task list. */
+    // ── Publish task list ──────────────────────────────────────────────────
+
     _publishList() {
         const list = Array.from(this._tasks.values())
             .map(t => ({
@@ -173,9 +230,9 @@ class TaskManager {
                 status: t.status,
                 elapsedMs: t.elapsedMs ?? 0,
                 etaMs: this._calcEta(t),
+                chatId: t.chatId,
             }))
             .sort((a, b) => {
-                // Running tasks first, then by startTime
                 if (a.status === "running" && b.status !== "running") return -1;
                 if (a.status !== "running" && b.status === "running") return 1;
                 return (b.elapsedMs || 0) - (a.elapsedMs || 0);
@@ -183,69 +240,68 @@ class TaskManager {
         eventBus.publish("task_list", list);
     }
 
-    /** Get all cached tasks. */
+    // ── Getters ────────────────────────────────────────────────────────────
+
     getTasks() {
         return Array.from(this._tasks.values());
     }
 
-    /** Get a single task by ID. */
     getTask(taskId) {
         return this._tasks.get(taskId) || null;
     }
 
-    // ── Static helper: create progress file ──
-    static createProgressFile(taskId, name, type) {
+    // ── Static helpers: create/update/complete tasks ──────────────────────
+
+    static createProgressFile(taskId, name, type, chatId) {
         const dir = TASK_DIR;
         try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+        const now = Date.now();
         const data = {
-            taskId,
-            name,
-            type,
+            taskId: taskId || "task_" + now,
+            name: name || "Task",
+            type: type || "generic",
             status: "running",
             progress: 0,
             elapsedMs: 0,
-            startTime: Date.now(),
+            startTime: now,
+            lastUpdated: now,
             createdAt: new Date().toISOString(),
+            chatId: chatId || "",
         };
-        const fp = path.join(dir, `${taskId}.json`);
+        const fp = path.join(dir, (taskId || "task_" + now) + ".json");
         fs.writeFileSync(fp, JSON.stringify(data, null, 2));
         return fp;
     }
 
-    /** Update a field in a progress file. */
     static updateProgress(taskId, updates) {
         const dir = TASK_DIR;
-        const fp = path.join(dir, `${taskId}.json`);
+        const fp = path.join(dir, taskId + ".json");
         try {
             const raw = fs.readFileSync(fp, "utf-8");
             const data = JSON.parse(raw);
             Object.assign(data, updates);
-            data.elapsedMs = Date.now() - (data.startTime || Date.now());
+            data.lastUpdated = Date.now();
+            if (data.startTime) data.elapsedMs = Date.now() - data.startTime;
             fs.writeFileSync(fp, JSON.stringify(data, null, 2));
         } catch (_) {}
     }
 
-    /** Mark task as complete. */
     static completeTask(taskId, status, extra) {
-        TaskManager.updateProgress(taskId, { status, progress: 100, ...extra });
+        TaskManager.updateProgress(taskId, Object.assign({ status: status || "success", progress: 100 }, extra || {}));
     }
 }
 
+// ── Feishu credentials ─────────────────────────────────────────────────────
 
-
-/**
- * Set Feishu API credentials for sending independent progress cards.
- */
 TaskManager.prototype.setCredentials = function(appId, appSecret, domain) {
-    console.log("[TaskManager] setCredentials called:", appId ? "has appId" : "NO appId");
+    console.log("[TaskManager] setCredentials: appId=" + (appId ? "yes" : "NO") + " domain=" + (domain || "feishu"));
     this._feishuAppId = appId;
     this._feishuAppSecret = appSecret;
     this._feishuDomain = domain || 'feishu';
 };
 
-/**
- * Resolve Feishu API base URL from domain.
- */
+// ── Feishu API helpers ─────────────────────────────────────────────────────
+
 TaskManager.prototype._resolveApiBase = function() {
     const d = this._feishuDomain || 'feishu';
     if (d === 'feishu') return 'https://open.feishu.cn/open-apis';
@@ -254,122 +310,284 @@ TaskManager.prototype._resolveApiBase = function() {
     return 'https://open.feishu.cn/open-apis';
 };
 
-/**
- * Send or update an independent progress card for a background task.
- * Called from _scan() for each task with chatId.
- */
-TaskManager.prototype._updateStreamingCard = async function(task) {
-    console.log("[TaskManager] _updateStreamingCard called:", task.taskId, "feishuAppId:", this._feishuAppId ? "yes" : "NO");
+TaskManager.prototype._getToken = async function() {
+    const now = Date.now();
+    if (this._tenantToken && now < this._tokenExpiresAt - 60000) {
+        return this._tenantToken; // reuse cached token
+    }
+    if (!this._feishuAppId || !this._feishuAppSecret) return null;
+    try {
+        const apiBase = this._resolveApiBase();
+        const resp = await fetch(apiBase + '/auth/v3/tenant_access_token/internal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({ app_id: this._feishuAppId, app_secret: this._feishuAppSecret })
+        });
+        const data = await resp.json();
+        if (data.code === 0 && data.tenant_access_token) {
+            this._tenantToken = data.tenant_access_token;
+            this._tokenExpiresAt = now + (data.expire || 7200) * 1000;
+            return this._tenantToken;
+        }
+        console.log("[TaskManager] token error:", data.code, data.msg);
+    } catch (e) {}
+    return null;
+};
+
+// ── Format duration ────────────────────────────────────────────────────────
+
+function formatDuration(ms) {
+    if (!ms || ms < 0) return "0s";
+    const totalSec = Math.round(ms / 1000);
+    if (totalSec < 60) return totalSec + "s";
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (min < 60) return min + "m " + sec + "s";
+    const hr = Math.floor(min / 60);
+    const m = min % 60;
+    return hr + "h " + m + "m";
+}
+
+function getStatusEmoji(status) {
+    switch (status) {
+        case "running": return "🟢";
+        case "success": return "✅";
+        case "error": return "❌";
+        case "stalled": return "⚠️";
+        default: return "⚪";
+    }
+}
+
+/** Build a visual progress bar string. */
+function createProgressBar(pct) {
+    const filled = Math.round(pct / 10);
+    const empty = 10 - filled;
+    return "\u2588".repeat(Math.max(0, filled)) + "\u2591".repeat(Math.max(0, empty));
+}
+
+/** Get icon for task type. */
+function getTypeIcon(type) {
+    var icons = {
+        download: "\ud83d\udce5",
+        compile: "\ud83d\udd27",
+        git_clone: "\ud83d\udce6",
+        transcribe: "\ud83c\udfa4",
+        install: "\ud83d\udce6",
+        search: "\ud83d\udd0d",
+        generic: "\ud83d\udd04"
+    };
+    return icons[type] || "\ud83d\udd04";
+}
+
+// ── Send/update independent Feishu progress card ──────────────────────────
+
+TaskManager.prototype._updateProgressCard = async function(task) {
     if (!this._feishuAppId) return;
     if (!task.chatId) return;
-    try {
-        // Read bridge content
-        const bridgePath = path.join('/tmp/task-progress', task.chatId + '.txt');
-        let bridgeContent;
-        try { bridgeContent = fs.readFileSync(bridgePath, 'utf8').trim(); } catch (e) { return; }
-        if (!bridgeContent) return;
+    if (this._isNotified("card:" + task.taskId + ":" + task.status)) return;
 
-        // Get Feishu token
-        const apiBase = this._resolveApiBase();
-        let token = null;
-        try {
-            const resp = await fetch(apiBase + '/auth/v3/tenant_access_token/internal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ app_id: this._feishuAppId, app_secret: this._feishuAppSecret })
-            });
-            const data = await resp.json();
-            if (data.code === 0 && data.tenant_access_token) { token = data.tenant_access_token; console.log("[TaskManager] Got token:", token.slice(0,20)+"..."); } else { console.log("[TaskManager] Token error:", data.code, data.msg); }
-        } catch (e) { return; }
+    try {
+        const token = await this._getToken();
         if (!token) return;
 
+        const apiBase = this._resolveApiBase();
+        const taskName = task.name || "Task";
+        const statusEmoji = getStatusEmoji(task.status);
+        const pct = Math.min(100, Math.max(0, task.progress || 0));
+        const bar = createProgressBar(pct);
+
+        // Build rich card content
+        var cardMarkdown = "";
+
+        if (task.status === "running") {
+            cardMarkdown += "**" + getTypeIcon(task.type) + " " + taskName + "**\n";
+            cardMarkdown += bar + " **" + pct + "%**\n";
+            const elapsed = formatDuration(task.elapsedMs);
+            cardMarkdown += "\u23f1\ufe0f " + elapsed;
+            if (pct > 0 && pct < 100) {
+                const etaMs = this._calcEta(task);
+                if (etaMs > 0) {
+                    cardMarkdown += " \u00b7 ETA " + formatDuration(etaMs);
+                }
+            }
+        } else if (task.status === "success") {
+            cardMarkdown += "✅ **" + taskName + "** \u2014 \u5df2\u5b8c\u6210\n";
+            cardMarkdown += bar + " **100%**\n";
+            cardMarkdown += "\u23f1\ufe0f \u603b\u8017\u65f6 " + formatDuration(task.elapsedMs);
+        } else if (task.status === "error") {
+            cardMarkdown += "❌ **" + taskName + "** \u2014 \u6267\u884c\u5931\u8d25\n";
+            cardMarkdown += bar + " **" + pct + "%**\n";
+            cardMarkdown += "\u23f1\ufe0f " + formatDuration(task.elapsedMs) + "\n";
+            if (task.error) {
+                cardMarkdown += "\u26a0\ufe0f " + task.error;
+            }
+        } else if (task.status === "stalled") {
+            cardMarkdown += "\u26a0\ufe0f **" + taskName + "** \u2014 \u4efb\u52a1\u505c\u6ede\n";
+            cardMarkdown += bar + " **" + pct + "%**\n";
+            cardMarkdown += "\u23f1\ufe0f " + formatDuration(task.elapsedMs) + "\n";
+            if (task.error) {
+                cardMarkdown += "\u26a0\ufe0f " + task.error;
+            }
+        }
+
         // Build card JSON
-        const cardPayload = {
-            schema: '2.0',
+        var headerTitle = statusEmoji + " " + (task.status === "running"
+            ? "\u4efb\u52a1\u8fdb\u5ea6: " + taskName + " (" + pct + "%)"
+            : "\u4efb\u52a1\u7ed3\u675f: " + taskName);
+
+        var cardPayload = {
+            schema: "2.0",
             config: { wide_screen_mode: true, update_multi: true },
+            header: {
+                title: { tag: "plain_text", content: headerTitle },
+                template: task.status === "error" || task.status === "stalled" ? "red"
+                    : task.status === "success" ? "green"
+                    : "blue"
+            },
             body: {
-                elements: [{
-                    tag: 'collapsible_panel',
-                    expanded: true,
-                    header: {
-                        title: { tag: 'plain_text', content: '📊 任务总进度', text_color: 'grey', text_size: 'notation' }
-                    },
-                    border: { color: 'grey', corner_radius: '5px' },
-                    vertical_spacing: '4px',
-                    padding: '8px 8px 8px 8px',
-                    elements: [{ tag: 'markdown', content: bridgeContent, text_size: 'notation' }]
-                }]
+                elements: [
+                    {
+                        tag: "markdown",
+                        content: cardMarkdown,
+                        text_size: "notation",
+                    }
+                ]
             }
         };
 
-        const fullCardJson = JSON.stringify({ type: 'card', data: { card: cardPayload } });
-        const existingCardId = task.__progressCardId;
+        var existingCardId = this._sentCards.get(task.taskId);
+        if (existingCardId) {
+            existingCardId = existingCardId.messageId;
+        } else if (task.__progressCardId) {
+            existingCardId = task.__progressCardId;
+        }
+
+        var fullCardJson = JSON.stringify({ type: "card", data: { card: cardPayload } });
 
         if (existingCardId) {
             // UPDATE existing card
-            await fetch(apiBase + '/im/v1/messages/' + existingCardId, {
-                method: 'PUT',
+            var updateUrl = apiBase + "/im/v1/messages/" + existingCardId;
+            var updateResp = await fetch(updateUrl, {
+                method: "PATCH",
                 headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'application/json; charset=utf-8'
+                    "Authorization": "Bearer " + token,
+                    "Content-Type": "application/json; charset=utf-8"
                 },
-                body: JSON.stringify({ content: fullCardJson, msg_type: 'interactive' })
+                body: JSON.stringify({ content: fullCardJson, msg_type: "interactive" })
             });
-        } else {
-            // CREATE new independent card
-            const resp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'application/json; charset=utf-8'
-                },
-                body: JSON.stringify({
-                    receive_id: task.chatId,
-                    msg_type: 'interactive',
-                    content: fullCardJson
-                })
-            });
-            const result = await resp.json();
-            // Store new card's messageId for future updates
-            if (result.code === 0 && result.data && result.data.message_id) {
-                try {
-                    const taskFp = path.join('/tmp/openclaw-tasks', task.taskId + '.json');
-                    const raw = fs.readFileSync(taskFp, 'utf8');
-                    const td = JSON.parse(raw);
-                    td.__progressCardId = result.data.message_id;
-                    fs.writeFileSync(taskFp, JSON.stringify(td, null, 2));
-                } catch (e) {}
+            var updateResult = await updateResp.json();
+            if (updateResult.code !== 0) {
+                console.log("[TaskManager] card update failed:", updateResult.code, updateResult.msg);
+                // Card may have been deleted, resend as new
+                this._sentCards.delete(task.taskId);
+                existingCardId = null;
             }
         }
 
-        // Clean up bridge file when done
-        if (task.status === 'success' || task.status === 'error') {
-            try { fs.unlinkSync(bridgePath); } catch (e) {}
+        if (!existingCardId) {
+            // CREATE new independent card
+            var createUrl = apiBase + "/im/v1/messages?receive_id_type=chat_id";
+            var createResp = await fetch(createUrl, {
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer " + token,
+                    "Content-Type": "application/json; charset=utf-8"
+                },
+                body: JSON.stringify({
+                    receive_id: task.chatId,
+                    msg_type: "interactive",
+                    content: fullCardJson
+                })
+            });
+            var createResult = await createResp.json();
+            if (createResult.code === 0 && createResult.data && createResult.data.message_id) {
+                var msgId = createResult.data.message_id;
+                this._sentCards.set(task.taskId, { messageId: msgId, firstSentAt: Date.now() });
+                task.__progressCardId = msgId;
+                // Persist card ID back to task file
+                var taskFp = path.join(this._taskDir, task.taskId + ".json");
+                try {
+                    var raw = fs.readFileSync(taskFp, "utf8");
+                    var td = JSON.parse(raw);
+                    td.__progressCardId = msgId;
+                    fs.writeFileSync(taskFp, JSON.stringify(td, null, 2));
+                } catch (_) {}
+                console.log("[TaskManager] card created:", msgId);
+            } else {
+                console.log("[TaskManager] card create failed:", createResult.code, createResult.msg);
+            }
         }
-    } catch (e) {}
-};
-exports.TaskManager = TaskManager;
 
-/**
- * Write progress bridge file for streaming card to read.
- * The card's buildProgressPanel reads this file and includes content.
- */
+        // Mark notified to avoid duplicate updates
+        this._markNotified("card:" + task.taskId + ":" + task.status);
+    } catch (e) {
+        console.log("[TaskManager] _updateProgressCard error:", String(e));
+    }
+};
+
+// ── Write bridge file for builder.js ───────────────────────────────────────
+
 TaskManager.prototype._writeBridgeFile = function(task) {
     if (!task.chatId) return;
     try {
-        const { buildProgressText, buildCompletionText } = require('./task-card.js');
-        const text = (task.status === 'success' || task.status === 'error')
-            ? buildCompletionText(task)
-            : buildProgressText(task);
-        fs.writeFileSync(path.join(BRIDGE_DIR, task.chatId + '.txt'), text);
+        var pct = Math.min(100, Math.max(0, task.progress || 0));
+        var bar = createProgressBar(pct);
+        var elapsed = formatDuration(task.elapsedMs);
+        var icon = getTypeIcon(task.type);
+        var content = "";
+
+        if (task.status === "running") {
+            content = getStatusEmoji(task.status) + " **" + icon + " " + task.name + "**\n";
+            content += bar + " **" + pct + "%**\n";
+            content += "\u23f1\ufe0f " + elapsed;
+            if (pct > 0 && pct < 100) {
+                var etaMs = this._calcEta(task);
+                if (etaMs > 0) content += " \u00b7 ETA " + formatDuration(etaMs);
+            }
+        } else if (task.status === "success") {
+            content = "✅ **" + task.name + "** \u5df2\u5b8c\u6210\n";
+            content += bar + " 100%\n";
+            content += "\u23f1\ufe0f " + elapsed;
+        } else if (task.status === "error") {
+            content = "❌ **" + task.name + "** \u6267\u884c\u5931\u8d25\n";
+            content += "\u23f1\ufe0f " + elapsed + "\n";
+            if (task.error) content += "\u26a0\ufe0f " + task.error;
+        } else if (task.status === "stalled") {
+            content = "\u26a0\ufe0f **" + task.name + "** \u4efb\u52a1\u505c\u6ede\n";
+            content += "\u23f1\ufe0f " + elapsed + "\n";
+            if (task.error) content += "\u26a0\ufe0f " + task.error;
+        }
+
+        fs.writeFileSync(path.join(BRIDGE_DIR, task.chatId + ".txt"), content);
     } catch (_) {}
 };
 
-// ── Auto-start TaskManager when module is loaded ──
+// ── Idempotency helpers ────────────────────────────────────────────────────
+
+TaskManager.prototype._isNotified = function(key) {
+    return this._notifiedKeys.has(key);
+};
+
+TaskManager.prototype._markNotified = function(key) {
+    this._notifiedKeys.set(key, Date.now());
+    // Cleanup old entries
+    var now = Date.now();
+    if (this._notifiedKeys.size > 1000) {
+        for (var k of this._notifiedKeys.keys()) {
+            if (now - this._notifiedKeys.get(k) > NOTIFIED_TTL_MS) {
+                this._notifiedKeys.delete(k);
+            }
+        }
+    }
+};
+
+exports.TaskManager = TaskManager;
+
+// ── Auto-start ─────────────────────────────────────────────────────────────
 if (!global._feishuTaskManagerStarted) {
     global._feishuTaskManagerStarted = true;
     try {
-        const tm = new TaskManager();
+        var tm = new TaskManager();
         global._feishuTaskManager = tm;
         tm.start();
     } catch (_) {}

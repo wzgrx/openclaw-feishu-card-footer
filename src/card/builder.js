@@ -777,23 +777,17 @@ function buildProgressPanel(steps, extraContent) {
     const bgTasks = params.backgroundTasks || readActiveTasks();
     if (bgTasks.length > 0) {
         const active = bgTasks.filter(t => t.status === 'running');
+        const stalled = bgTasks.filter(t => t.status === 'stalled');
         if (active.length > 0) {
-            const t = active[0];
-            const pct = Math.min(100, Math.max(0, t.progress || 0));
-            const barW = 10;
-            const barF = Math.round((pct / 100) * barW);
-            const bar = '\u2588'.repeat(Math.max(0, barF)) + '\u2591'.repeat(Math.max(0, barW - barF));
-            const elapsed = t.elapsedMs ? formatElapsed(t.elapsedMs) : '';
-            const eta = t.etaMs > 0 ? 'ETA ' + formatElapsed(t.etaMs) : '';
-            const taskIcon = { download: '\ud83d\udce5', compile: '\ud83d\udd27', generic: '\ud83d\udd04' }[t.type] || '\ud83d\udd04';
-            const taskLine = taskIcon + ' ' + t.name + ' ' + bar + ' ' + pct + '%' + (elapsed ? ' \u23f1\ufe0f ' + elapsed : '');
-            if (eta) {
-                footerZhLines.push(taskLine + ' \u00b7 ETA ' + eta);
-                footerEnLines.push(taskLine + ' \u00b7 ETA ' + eta);
-            } else {
-                footerZhLines.push(taskLine);
-                footerEnLines.push(taskLine);
-            }
+            // Minimal indicator — full progress moved to independent card
+            const names = active.map(t => t.name).join(', ');
+            footerZhLines.push('📊 ' + active.length + '\u4e2a\u540e\u53f0\u4efb\u52a1\u8fdb\u884c\u4e2d: ' + names);
+            footerEnLines.push('📊 ' + active.length + ' background task' + (active.length > 1 ? 's' : '') + ' running: ' + names);
+        }
+        if (stalled.length > 0) {
+            const names = stalled.map(t => t.name).join(', ');
+            footerZhLines.push('⚠️ ' + stalled.length + '\u4e2a\u4efb\u52a1\u505c\u6ede: ' + names);
+            footerEnLines.push('⚠️ ' + stalled.length + ' task' + (stalled.length > 1 ? 's' : '') + ' stalled: ' + names);
         }
     }
     if (footerZhLines.length > 0) {
