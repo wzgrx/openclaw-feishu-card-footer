@@ -1091,6 +1091,7 @@ class StreamingCardController {
                 steps: display?.steps,
                 elapsedMs: this.visibleToolUseElapsedMs,
                 showToolUse: this.shouldDisplayToolUse,
+                chatId: this.deps.chatId,
             });
             this.cardKit.cardKitSequence += 1;
             await (0, cardkit_1.updateCardKitCard)({

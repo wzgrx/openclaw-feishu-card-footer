@@ -12,6 +12,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.REASONING_ELEMENT_ID = exports.STREAMING_ELEMENT_ID = void 0;
 exports.splitReasoningText = splitReasoningText;
 exports.stripReasoningTags = stripReasoningTags;
+// Ensure TaskManager is loaded (auto-starts when required)
+require('../progress/task-manager.js');
 exports.formatReasoningDuration = formatReasoningDuration;
 exports.formatToolUseDuration = formatToolUseDuration;
 exports.formatElapsed = formatElapsed;
@@ -900,12 +902,46 @@ function buildStreamingThinkingCard(showToolUse = true) {
  * Used both for the initial card and for live updates during tool calls.
  */
 function buildStreamingPreAnswerCard(params) {
-    const { steps, elapsedMs, showToolUse = true } = params;
+    const { steps, elapsedMs, showToolUse = true, chatId } = params;
     const hasSteps = Boolean(steps?.length);
     const elements = [];
     if (showToolUse) {
         elements.push(hasSteps ? buildStreamingToolUseActivePanel({ steps: steps, elapsedMs }) : buildStreamingToolUsePendingPanel());
     }
+    // Read bridge file for background task progress
+    try {
+        const fs = require('fs');
+        const bridgePath = '/tmp/task-progress/' + chatId + '.txt';
+        if (chatId && fs.existsSync(bridgePath)) {
+            const bridgeText = fs.readFileSync(bridgePath, 'utf-8').trim();
+            if (bridgeText) {
+                elements.push({
+                    tag: 'collapsible_panel',
+                    expanded: true,
+                    header: {
+                        title: {
+                            tag: 'plain_text',
+                            content: '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6',
+                            i18n_content: {
+                                zh_cn: '\ud83d\udcca \u4efb\u52a1\u603b\u8fdb\u5ea6',
+                                en_us: '\ud83d\udcca Task Progress',
+                            },
+                            text_color: 'grey',
+                            text_size: 'notation',
+                        },
+                    },
+                    border: { color: 'grey', corner_radius: '5px' },
+                    vertical_spacing: '4px',
+                    padding: '8px 8px 8px 8px',
+                    elements: [{
+                        tag: 'markdown',
+                        content: bridgeText,
+                        text_size: 'notation',
+                    }],
+                });
+            }
+        }
+    } catch (_) {}
     elements.push({
         tag: 'markdown',
         content: '',

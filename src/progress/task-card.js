@@ -7,6 +7,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildTaskCard = buildTaskCard;
+exports.buildProgressText = buildProgressText;
+exports.buildCompletionText = buildCompletionText;
 
 /**
  * Build a Feishu interactive card for the /tasks command.
@@ -94,6 +96,30 @@ function buildTaskCard(tasks) {
         },
         "elements": elements
     };
+}
+
+/**
+ * Build a plain-text progress string for bridge file.
+ */
+function buildProgressText(task) {
+    const pct = Math.min(100, Math.max(0, task.progress || 0));
+    const bar = "█".repeat(Math.round(pct/10)) + "░".repeat(Math.round((100-pct)/10));
+    const elapsed = formatDuration(task.elapsedMs || 0);
+    const eta = task.etaMs > 0 ? formatDuration(task.etaMs) : '估算中...';
+    const icon = getTypeIcon(task.type);
+    return icon + ' ' + task.name + '\n' + bar + ' ' + pct + '%\n⏱️ ' + elapsed + ' · ETA ' + eta;
+}
+
+/**
+ * Build a plain-text completion string for bridge file.
+ */
+function buildCompletionText(task) {
+    const isError = task.status === 'error';
+    const icon = isError ? '❌' : '✅';
+    const elapsed = formatDuration(task.elapsedMs || 0);
+    let r = icon + ' ' + task.name + ' - ' + (isError ? '执行失败' : '执行完成') + '\n⏱️ 总耗时 ' + elapsed;
+    if (isError && task.error) r += '\n⚠️ ' + task.error;
+    return r;
 }
 
 /** Create a visual progress bar string. */

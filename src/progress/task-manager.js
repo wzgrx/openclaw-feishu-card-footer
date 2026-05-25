@@ -27,6 +27,7 @@ const eventBus = require("../channel/event-bus");
 // Defaults
 // ---------------------------------------------------------------------------
 const TASK_DIR = "/tmp/openclaw-tasks";
+const BRIDGE_DIR = "/tmp/task-progress";
 const POLL_MS = 3000;         // 轮询间隔
 const MAX_AGE_MS = 86400000;  // 24h 后清理已完成任务
 
@@ -40,6 +41,7 @@ class TaskManager {
         this._tasks = new Map();   // taskId → cached task
         this._timer = null;
         this._setupTaskDir();
+    this._setupBridgeDir();
     }
 
     /** Ensure the task directory exists (create on demand). */
@@ -49,6 +51,10 @@ class TaskManager {
                 fs.mkdirSync(this._taskDir, { recursive: true });
             }
         } catch (_) { /* best effort */ }
+    }
+    /** Ensure bridge directory exists. */
+    _setupBridgeDir() {
+        try { fs.mkdirSync(BRIDGE_DIR, { recursive: true }); } catch (_) {}
     }
 
     /** Start polling. */
@@ -112,6 +118,9 @@ class TaskManager {
                 etaMs,
                 logFile: task.logFile,
             });
+
+            // Write bridge file for streaming card to read
+            this._writeBridgeFile(task);
 
             // Publish completion / error
             if (task.status === "success" && prevStatus !== "success") {
@@ -219,3 +228,27 @@ class TaskManager {
 }
 
 exports.TaskManager = TaskManager;
+
+/**
+ * Write progress bridge file for streaming card to read.
+ * The card's buildProgressPanel reads this file and includes content.
+ */
+TaskManager.prototype._writeBridgeFile = function(task) {
+    if (!task.chatId) return;
+    try {
+        const { buildProgressText, buildCompletionText } = require('./task-card.js');
+        const text = (task.status === 'success' || task.status === 'error')
+            ? buildCompletionText(task)
+            : buildProgressText(task);
+        fs.writeFileSync(path.join(BRIDGE_DIR, task.chatId + '.txt'), text);
+    } catch (_) {}
+};
+
+// ── Auto-start TaskManager when module is loaded ──
+if (!global._feishuTaskManagerStarted) {
+    global._feishuTaskManagerStarted = true;
+    try {
+        const tm = new TaskManager();
+        tm.start();
+    } catch (_) {}
+}
