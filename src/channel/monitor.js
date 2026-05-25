@@ -57,10 +57,12 @@ async function monitorSingleAccount(params) {
     log(`feishu[${accountId}]: starting WebSocket connection...`);
     // Create LarkClient instance — manages SDK client, WS, and bot identity.
     const lark = lark_client_1.LarkClient.fromAccount(account);
-    // Pass Feishu credentials to TaskManager for independent progress cards
+    // Pass Feishu credentials + config to TaskManager for independent progress cards
     if (global._feishuTaskManager && account.appId && account.appSecret) {
         try {
             global._feishuTaskManager.setCredentials(account.appId, account.appSecret, account.domain);
+            global._feishuTaskManager.setLarkClient(lark);
+            global._feishuTaskManager.setConfig(cfg);
         } catch (_) {}
     }
     // Attach dedup instance so it is disposed together with the client.
@@ -79,10 +81,10 @@ async function monitorSingleAccount(params) {
         log,
         error,
     };
-    // Start progress card timer (watchdog-style polling)
+    // Start progress card timer (watchdog-style polling) — simplified, no-op if task-manager not available
     let progressTimer = null;
     if (account.appId && account.appSecret) {
-        progressTimer = startProgressCardTimer(account, log);
+        try { const { TaskManager } = require('../progress/task-manager.js'); const tm = new TaskManager(); tm.start(); progressTimer = tm; } catch (_) {}
     }
     await lark.startWS({
         handlers: {

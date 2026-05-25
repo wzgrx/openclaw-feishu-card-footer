@@ -32,6 +32,8 @@ exports.TaskManager = void 0;
 const fs = require("fs");
 const path = require("path");
 const eventBus = require("../channel/event-bus");
+let cardBuilder = null;
+try { cardBuilder = require("./standalone-card-builder.js"); } catch (_) {}
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -302,6 +304,21 @@ TaskManager.prototype.setCredentials = function(appId, appSecret, domain) {
 
 // ── Feishu API helpers ─────────────────────────────────────────────────────
 
+TaskManager.prototype.setLarkClient = function(lark) {
+    this._lark = lark;
+    console.log("[TaskManager] LarkClient set");
+};
+
+TaskManager.prototype.setFeishuChatId = function(chatId) {
+    this._defaultChatId = chatId;
+};
+
+
+TaskManager.prototype.setConfig = function(cfg) {
+    this._cfg = cfg;
+    console.log('[TM] config set');
+};
+
 TaskManager.prototype._resolveApiBase = function() {
     const d = this._feishuDomain || 'feishu';
     if (d === 'feishu') return 'https://open.feishu.cn/open-apis';
@@ -382,150 +399,54 @@ function getTypeIcon(type) {
 // ── Send/update independent Feishu progress card ──────────────────────────
 
 TaskManager.prototype._updateProgressCard = async function(task) {
-    if (!this._feishuAppId) return;
     if (!task.chatId) return;
-    if (this._isNotified("card:" + task.taskId + ":" + task.status)) return;
-
     try {
-        const token = await this._getToken();
+        var token = await this._getToken();
         if (!token) return;
-
-        const apiBase = this._resolveApiBase();
-        const taskName = task.name || "Task";
-        const statusEmoji = getStatusEmoji(task.status);
-        const pct = Math.min(100, Math.max(0, task.progress || 0));
-        const bar = createProgressBar(pct);
-
-        // Build rich card content
-        var cardMarkdown = "";
-
-        if (task.status === "running") {
-            cardMarkdown += "**" + getTypeIcon(task.type) + " " + taskName + "**\n";
-            cardMarkdown += bar + " **" + pct + "%**\n";
-            const elapsed = formatDuration(task.elapsedMs);
-            cardMarkdown += "\u23f1\ufe0f " + elapsed;
-            if (pct > 0 && pct < 100) {
-                const etaMs = this._calcEta(task);
-                if (etaMs > 0) {
-                    cardMarkdown += " \u00b7 ETA " + formatDuration(etaMs);
-                }
-            }
-        } else if (task.status === "success") {
-            cardMarkdown += "✅ **" + taskName + "** \u2014 \u5df2\u5b8c\u6210\n";
-            cardMarkdown += bar + " **100%**\n";
-            cardMarkdown += "\u23f1\ufe0f \u603b\u8017\u65f6 " + formatDuration(task.elapsedMs);
-        } else if (task.status === "error") {
-            cardMarkdown += "❌ **" + taskName + "** \u2014 \u6267\u884c\u5931\u8d25\n";
-            cardMarkdown += bar + " **" + pct + "%**\n";
-            cardMarkdown += "\u23f1\ufe0f " + formatDuration(task.elapsedMs) + "\n";
-            if (task.error) {
-                cardMarkdown += "\u26a0\ufe0f " + task.error;
-            }
-        } else if (task.status === "stalled") {
-            cardMarkdown += "\u26a0\ufe0f **" + taskName + "** \u2014 \u4efb\u52a1\u505c\u6ede\n";
-            cardMarkdown += bar + " **" + pct + "%**\n";
-            cardMarkdown += "\u23f1\ufe0f " + formatDuration(task.elapsedMs) + "\n";
-            if (task.error) {
-                cardMarkdown += "\u26a0\ufe0f " + task.error;
-            }
+        var apiBase = this._resolveApiBase();
+        var taskName = task.name || 'Task';
+        var pct = Math.min(100, Math.max(0, task.progress || 0));
+        var elapsed = formatDuration(task.elapsedMs);
+        var icon = getTypeIcon(task.type);
+        var cardText = '';
+        if (task.status === 'running') {
+            cardText = '**' + icon + ' ' + taskName + '**\n' + '\u2588'.repeat(Math.round(pct/10)) + '\u2591'.repeat(Math.round((100-pct)/10)) + ' **' + pct + '%**\n\u23f1\ufe0f ' + elapsed;
+        } else if (task.status === 'success') {
+            cardText = '\u2705 **' + taskName + '**\n' + '\u2588'.repeat(10) + ' **100%**\n\u23f1\ufe0f ' + elapsed;
+        } else {
+            cardText = '\u26a0\ufe0f **' + taskName + '** - ' + (task.error || 'error') + '\n\u23f1\ufe0f ' + elapsed;
         }
-
-        // Build card JSON
-        var headerTitle = statusEmoji + " " + (task.status === "running"
-            ? "\u4efb\u52a1\u8fdb\u5ea6: " + taskName + " (" + pct + "%)"
-            : "\u4efb\u52a1\u7ed3\u675f: " + taskName);
-
-        var cardPayload = {
-            schema: "2.0",
-            config: { wide_screen_mode: true, update_multi: true },
-            header: {
-                title: { tag: "plain_text", content: headerTitle },
-                template: task.status === "error" || task.status === "stalled" ? "red"
-                    : task.status === "success" ? "green"
-                    : "blue"
-            },
-            body: {
-                elements: [
-                    {
-                        tag: "markdown",
-                        content: cardMarkdown,
-                        text_size: "notation",
-                    }
-                ]
-            }
-        };
-
-        var existingCardId = this._sentCards.get(task.taskId);
+        var template = task.status === 'error' || task.status === 'stalled' ? 'red' : task.status === 'success' ? 'green' : 'blue';
+        var emoji = task.status === 'running' ? '\ud83d\udfe2' : task.status === 'success' ? '\u2705' : '\u26a0\ufe0f';
+        var title = emoji + ' ' + taskName;
+        var card = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: cardText } }] };
+        var contentStr = JSON.stringify(card);
+        var existingCardId = null;
+        var sent = this._sentCards.get(task.taskId);
+        if (sent) existingCardId = sent.messageId;
+        else if (task.__progressCardId) existingCardId = task.__progressCardId;
         if (existingCardId) {
-            existingCardId = existingCardId.messageId;
-        } else if (task.__progressCardId) {
-            existingCardId = task.__progressCardId;
-        }
-
-        var fullCardJson = JSON.stringify({ type: "card", data: { card: cardPayload } });
-
-        if (existingCardId) {
-            // UPDATE existing card
-            var updateUrl = apiBase + "/im/v1/messages/" + existingCardId;
-            var updateResp = await fetch(updateUrl, {
-                method: "PATCH",
-                headers: {
-                    "Authorization": "Bearer " + token,
-                    "Content-Type": "application/json; charset=utf-8"
-                },
-                body: JSON.stringify({ content: fullCardJson, msg_type: "interactive" })
-            });
-            var updateResult = await updateResp.json();
-            if (updateResult.code !== 0) {
-                console.log("[TaskManager] card update failed:", updateResult.code, updateResult.msg);
-                // Card may have been deleted, resend as new
+            try {
+                var r = await fetch(apiBase + '/im/v1/messages/' + existingCardId, { method: 'PATCH', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ content: contentStr, msg_type: 'interactive' }) });
+                var j = await r.json();
+                if (j.code === 0) { console.log('[TM] updated'); return; }
                 this._sentCards.delete(task.taskId);
                 existingCardId = null;
-            }
+            } catch (e) { existingCardId = null; }
         }
-
         if (!existingCardId) {
-            // CREATE new independent card
-            var createUrl = apiBase + "/im/v1/messages?receive_id_type=chat_id";
-            var createResp = await fetch(createUrl, {
-                method: "POST",
-                headers: {
-                    "Authorization": "Bearer " + token,
-                    "Content-Type": "application/json; charset=utf-8"
-                },
-                body: JSON.stringify({
-                    receive_id: task.chatId,
-                    msg_type: "interactive",
-                    content: fullCardJson
-                })
-            });
-            var createResult = await createResp.json();
-            if (createResult.code === 0 && createResult.data && createResult.data.message_id) {
-                var msgId = createResult.data.message_id;
-                this._sentCards.set(task.taskId, { messageId: msgId, firstSentAt: Date.now() });
-                task.__progressCardId = msgId;
-                // Persist card ID back to task file
-                var taskFp = path.join(this._taskDir, task.taskId + ".json");
-                try {
-                    var raw = fs.readFileSync(taskFp, "utf8");
-                    var td = JSON.parse(raw);
-                    td.__progressCardId = msgId;
-                    fs.writeFileSync(taskFp, JSON.stringify(td, null, 2));
-                } catch (_) {}
-                console.log("[TaskManager] card created:", msgId);
-            } else {
-                console.log("[TaskManager] card create failed:", createResult.code, createResult.msg);
-            }
+            try {
+                var r = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: contentStr }) });
+                var j = await r.json();
+                if (j.code === 0 && j.data?.message_id) { console.log('[TM] sent:', j.data.message_id); this._sentCards.set(task.taskId, { messageId: j.data.message_id }); }
+                else { console.log('[TM] fail:', j.code, j.msg); }
+            } catch (e) { console.log('[TM] fetch err:', String(e)); }
         }
-
-        // Mark notified to avoid duplicate updates
-        this._markNotified("card:" + task.taskId + ":" + task.status);
-    } catch (e) {
-        console.log("[TaskManager] _updateProgressCard error:", String(e));
-    }
+    } catch (e) { console.log('[TM] err:', String(e)); }
 };
 
-// ── Write bridge file for builder.js ───────────────────────────────────────
+
+
 
 TaskManager.prototype._writeBridgeFile = function(task) {
     if (!task.chatId) return;
