@@ -57,6 +57,12 @@ async function monitorSingleAccount(params) {
     log(`feishu[${accountId}]: starting WebSocket connection...`);
     // Create LarkClient instance — manages SDK client, WS, and bot identity.
     const lark = lark_client_1.LarkClient.fromAccount(account);
+    // Pass Feishu credentials to TaskManager for independent progress cards
+    if (global._feishuTaskManager && account.appId && account.appSecret) {
+        try {
+            global._feishuTaskManager.setCredentials(account.appId, account.appSecret, account.domain);
+        } catch (_) {}
+    }
     // Attach dedup instance so it is disposed together with the client.
     lark.messageDedup = messageDedup;
     /** Per-chat history maps (used for group-chat context window). */
@@ -73,6 +79,11 @@ async function monitorSingleAccount(params) {
         log,
         error,
     };
+    // Start progress card timer (watchdog-style polling)
+    let progressTimer = null;
+    if (account.appId && account.appSecret) {
+        progressTimer = startProgressCardTimer(account, log);
+    }
     await lark.startWS({
         handlers: {
             'im.message.receive_v1': (data) => (0, event_handlers_1.handleMessageEvent)(ctx, data),

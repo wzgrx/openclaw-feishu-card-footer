@@ -121,6 +121,7 @@ class TaskManager {
 
             // Write bridge file for streaming card to read
             this._writeBridgeFile(task);
+            this._updateStreamingCard(task).catch(function() {});
 
             // Publish completion / error
             if (task.status === "success" && prevStatus !== "success") {
@@ -227,6 +228,121 @@ class TaskManager {
     }
 }
 
+
+
+/**
+ * Set Feishu API credentials for sending independent progress cards.
+ */
+TaskManager.prototype.setCredentials = function(appId, appSecret, domain) {
+    this._feishuAppId = appId;
+    this._feishuAppSecret = appSecret;
+    this._feishuDomain = domain || 'feishu';
+};
+
+/**
+ * Resolve Feishu API base URL from domain.
+ */
+TaskManager.prototype._resolveApiBase = function() {
+    const d = this._feishuDomain || 'feishu';
+    if (d === 'feishu') return 'https://open.feishu.cn/open-apis';
+    if (d === 'lark') return 'https://open.larksuite.com/open-apis';
+    if (d.startsWith('http')) return d.replace(/\/+$/, '') + '/open-apis';
+    return 'https://open.feishu.cn/open-apis';
+};
+
+/**
+ * Send or update an independent progress card for a background task.
+ * Called from _scan() for each task with chatId.
+ */
+TaskManager.prototype._updateStreamingCard = async function(task) {
+    if (!this._feishuAppId) return;
+    if (!task.chatId) return;
+    try {
+        // Read bridge content
+        const bridgePath = path.join('/tmp/task-progress', task.chatId + '.txt');
+        let bridgeContent;
+        try { bridgeContent = fs.readFileSync(bridgePath, 'utf8').trim(); } catch (e) { return; }
+        if (!bridgeContent) return;
+
+        // Get Feishu token
+        const apiBase = this._resolveApiBase();
+        let token = null;
+        try {
+            const resp = await fetch(apiBase + '/auth/v3/tenant_access_token/internal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ app_id: this._feishuAppId, app_secret: this._feishuAppSecret })
+            });
+            const data = await resp.json();
+            if (data.code === 0 && data.tenant_access_token) token = data.tenant_access_token;
+        } catch (e) { return; }
+        if (!token) return;
+
+        // Build card JSON
+        const cardPayload = {
+            schema: '2.0',
+            config: { wide_screen_mode: true, update_multi: true },
+            body: {
+                elements: [{
+                    tag: 'collapsible_panel',
+                    expanded: true,
+                    header: {
+                        title: { tag: 'plain_text', content: '📊 任务总进度', text_color: 'grey', text_size: 'notation' }
+                    },
+                    border: { color: 'grey', corner_radius: '5px' },
+                    vertical_spacing: '4px',
+                    padding: '8px 8px 8px 8px',
+                    elements: [{ tag: 'markdown', content: bridgeContent, text_size: 'notation' }]
+                }]
+            }
+        };
+
+        const fullCardJson = JSON.stringify({ type: 'card', data: { card: cardPayload } });
+        const existingCardId = task.__progressCardId;
+
+        if (existingCardId) {
+            // UPDATE existing card
+            await fetch(apiBase + '/im/v1/messages/' + existingCardId, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                body: JSON.stringify({ content: fullCardJson, msg_type: 'interactive' })
+            });
+        } else {
+            // CREATE new independent card
+            const resp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                body: JSON.stringify({
+                    receive_id: task.chatId,
+                    msg_type: 'interactive',
+                    content: fullCardJson
+                })
+            });
+            const result = await resp.json();
+            // Store new card's messageId for future updates
+            if (result.code === 0 && result.data && result.data.message_id) {
+                try {
+                    const taskFp = path.join('/tmp/openclaw-tasks', task.taskId + '.json');
+                    const raw = fs.readFileSync(taskFp, 'utf8');
+                    const td = JSON.parse(raw);
+                    td.__progressCardId = result.data.message_id;
+                    fs.writeFileSync(taskFp, JSON.stringify(td, null, 2));
+                } catch (e) {}
+            }
+        }
+
+        // Clean up bridge file when done
+        if (task.status === 'success' || task.status === 'error') {
+            try { fs.unlinkSync(bridgePath); } catch (e) {}
+        }
+    } catch (e) {}
+};
 exports.TaskManager = TaskManager;
 
 /**
@@ -249,6 +365,7 @@ if (!global._feishuTaskManagerStarted) {
     global._feishuTaskManagerStarted = true;
     try {
         const tm = new TaskManager();
+        global._feishuTaskManager = tm;
         tm.start();
     } catch (_) {}
 }
