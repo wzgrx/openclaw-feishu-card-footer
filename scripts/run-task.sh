@@ -14,6 +14,7 @@ NAME=""
 CMD=""
 LOG=""
 PID_FILE=""
+CHAT_ID=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,8 +24,9 @@ while [[ $# -gt 0 ]]; do
         --cmd) CMD="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
         --pid-file) PID_FILE="$2"; shift 2 ;;
+        --chat-id) CHAT_ID="$2"; shift 2 ;;
         --help)
-            echo "Usage: run-task.sh --type <type> --name <name> --cmd <command> [options]"
+            echo "Usage: run-task.sh --type <type> --name <name> --cmd <command> [--chat-id <chatId>] [options]"
             exit 0 ;;
         *) echo "Unknown: $1"; exit 1 ;;
     esac
@@ -48,7 +50,8 @@ cat > "$TASK_DIR/$TASK_ID.json" <<JSONEOF
   "progress": 0,
   "elapsedMs": 0,
   "startTime": $(date +%s%3N),
-  "logFile": "$LOG"
+  "logFile": "$LOG",
+  "chatId": "$CHAT_ID"
 }
 JSONEOF
 
