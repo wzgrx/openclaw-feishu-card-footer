@@ -62,7 +62,7 @@ async function monitorSingleAccount(params) {
         try {
             global._feishuTaskManager.setCredentials(account.appId, account.appSecret, account.domain);
             global._feishuTaskManager.setLarkClient(lark);
-            global._feishuTaskManager.setConfig(cfg);
+            try { global._feishuTaskManager.setConfig(lark_client_1.LarkClient.globalConfig); } catch (_) {}
         } catch (_) {}
     }
     // Attach dedup instance so it is disposed together with the client.

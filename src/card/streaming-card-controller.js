@@ -304,9 +304,11 @@ class StreamingCardController {
             }
             st.source = 'streaming-card-controller';
             st.updatedAt = now.toISOString();
-            fs.writeFileSync(tokenStatsPath, JSON.stringify(st, null, 2), 'utf8');
+            const _tmpPath = tokenStatsPath + '.tmp';
+            fs.writeFileSync(_tmpPath, JSON.stringify(st, null, 2), 'utf8');
+            fs.renameSync(_tmpPath, tokenStatsPath);
         } catch (err) {
-            this.log.warn('direct token-stats write failed', { error: String(err) });
+            log.warn('direct token-stats write failed', { error: String(err) });
         }
     }
 

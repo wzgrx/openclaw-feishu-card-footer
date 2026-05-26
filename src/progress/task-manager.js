@@ -31,7 +31,7 @@ exports.TaskManager = void 0;
 
 const fs = require("fs");
 const path = require("path");
-const eventBus = require("../channel/event-bus");
+const eventBus = require("../channel/event-bus.js");
 let cardBuilder = null;
 try { cardBuilder = require("./standalone-card-builder.js"); } catch (_) {}
 
@@ -419,31 +419,64 @@ TaskManager.prototype._updateProgressCard = async function(task) {
         var template = task.status === 'error' || task.status === 'stalled' ? 'red' : task.status === 'success' ? 'green' : 'blue';
         var emoji = task.status === 'running' ? '\ud83d\udfe2' : task.status === 'success' ? '\u2705' : '\u26a0\ufe0f';
         var title = emoji + ' ' + taskName;
-        var card = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: cardText } }] };
-        var contentStr = JSON.stringify(card);
-        var existingCardId = null;
-        var sent = this._sentCards.get(task.taskId);
-        if (sent) existingCardId = sent.messageId;
-        else if (task.__progressCardId) existingCardId = task.__progressCardId;
-        if (existingCardId) {
-            try {
-                var r = await fetch(apiBase + '/im/v1/messages/' + existingCardId, { method: 'PATCH', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ content: contentStr, msg_type: 'interactive' }) });
-                var j = await r.json();
-                if (j.code === 0) { console.log('[TM] updated'); return; }
-                this._sentCards.delete(task.taskId);
-                existingCardId = null;
-            } catch (e) { existingCardId = null; }
+        var sentEntry = this._sentCards.get(task.taskId);
+        var cardKitCardId = task._cardKitCardId || null;
+        
+        // === STRONG DEDUP: if card already exists, never create another ===
+        if (sentEntry || task.__progressCardId) {
+            var msgId = (sentEntry ? sentEntry.messageId : null) || task.__progressCardId;
+            if (cardKitCardId) {
+                // Try to update existing card via CardKit
+                try {
+                    var fullCard = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: cardText } }] };
+                    await fetch(apiBase + '/cardkit/v1/cards/' + cardKitCardId + '/batch_update', {
+                        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
+                        body: JSON.stringify({ card: { type: 'card_json', data: JSON.stringify(fullCard) }, sequence: Date.now() })
+                    });
+                } catch (_) {}
+            }
+            // Always return — only ONE card per task, no matter what
+            return;
         }
-        if (!existingCardId) {
-            try {
-                var r = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: contentStr }) });
-                var j = await r.json();
-                if (j.code === 0 && j.data?.message_id) { console.log('[TM] sent:', j.data.message_id); this._sentCards.set(task.taskId, { messageId: j.data.message_id }); }
-                else { console.log('[TM] fail:', j.code, j.msg); }
-            } catch (e) { console.log('[TM] fetch err:', String(e)); }
-        }
+        
+        // === CREATE path (only runs once per task) ===
+        try {
+            // First try: CardKit API (supports real-time updates)
+            var fullCard = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: cardText } }] };
+            var body = JSON.stringify({ type: 'card_json', data: JSON.stringify(fullCard) });
+            var resp = await fetch(apiBase + '/cardkit/v1/cards', {
+                method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: body
+            });
+            var j = await resp.json();
+            if (j.code === 0 && j.data?.card_id) {
+                cardKitCardId = j.data.card_id;
+                var msgResp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
+                    method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: cardKitCardId } }) })
+                });
+                var mj = await msgResp.json();
+                if (mj.code === 0 && mj.data?.message_id) {
+                    this._sentCards.set(task.taskId, { messageId: mj.data.message_id });
+                    try { var fp = path.join(this._taskDir, task.taskId + '.json'); var d = JSON.parse(fs.readFileSync(fp, 'utf8')); d.__progressCardId = mj.data.message_id; d._cardKitCardId = cardKitCardId; fs.writeFileSync(fp, JSON.stringify(d, null, 2)); } catch (_) {}
+                    return;
+                }
+            }
+            // Fallback: inline card via IM API (static, no updates)
+            var fbResp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
+                method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: JSON.stringify(fullCard) })
+            });
+            var fj = await fbResp.json();
+            if (fj.code === 0 && fj.data?.message_id) {
+                this._sentCards.set(task.taskId, { messageId: fj.data.message_id });
+                try { var fp = path.join(this._taskDir, task.taskId + '.json'); var d = JSON.parse(fs.readFileSync(fp, 'utf8')); d.__progressCardId = fj.data.message_id; fs.writeFileSync(fp, JSON.stringify(d, null, 2)); } catch (_) {}
+            }
+        } catch (e) { console.log('[TM] create err:', String(e)); }
     } catch (e) { console.log('[TM] err:', String(e)); }
 };
+
+
+
 
 
 
