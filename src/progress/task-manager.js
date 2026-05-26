@@ -81,25 +81,92 @@ class TaskManager {
         try { fs.mkdirSync(BRIDGE_DIR, { recursive: true }); } catch (_) {}
     }
 
-    /** Start polling and stall detection. */
+    /** Start polling and stall detection with adaptive throttling + circuit breaker. */
     start() {
         if (this._timer) return;
+        this._idleRounds = 0;
+        this._circuitFailures = 0;
+        this._circuitOpenUntil = 0;
+        this._consecutivePollMs = this._pollMs;
         // Immediate scan
+        this._restorePersisted();
         this._scan();
-        this._timer = setInterval(() => this._scan(), this._pollMs);
+        this._scheduleNext();
         // Publish full list every 15s
-        this._listTimer = setInterval(() => this._publishList(), this._pollMs * 5);
+        this._listTimer = setInterval(() => this._publishList(), 15000);
         // Stall detection every 30s
         this._stallTimer = setInterval(() => this._checkStale(), 30000);
-        console.log("[TaskManager] started (poll=" + this._pollMs + "ms)");
+        console.log("[TaskManager] started (adaptive, base=" + this._pollMs + "ms)");
+    }
+
+    /** Adaptive scheduler: back off when idle, return to fast when tasks found. */
+    _scheduleNext() {
+        var self = this;
+        var delay = this._consecutivePollMs;
+        // Circuit breaker: if too many failures, pause
+        if (this._circuitOpenUntil > Date.now()) {
+            delay = 30000; // 30s wait during circuit open
+        }
+        this._timer = setTimeout(function() { self._adaptivePoll(); }, delay);
+    }
+
+    /** Single poll with adaptive timing. */
+    _adaptivePoll() {
+        if (this._stopped) return;
+        
+        // Circuit breaker check
+        if (this._circuitFailures >= 5) {
+            this._circuitOpenUntil = Date.now() + 30000;
+            console.log("[TaskManager] circuit breaker opened (5 failures, wait 30s)");
+            this._circuitFailures = 0;
+            this._scheduleNext();
+            return;
+        }
+        
+        // Count tasks before scan
+        var beforeCount = this._tasks.size;
+        this._scan();
+        var afterCount = this._tasks.size;
+        var runningCount = 0;
+        this._tasks.forEach(function(t) { if (t.status === 'running') runningCount++; });
+        
+        // Adaptive throttling:
+        // tasks found or changed -> stay fast (base poll)
+        // idle rounds -> back off
+        if (runningCount > 0 || afterCount > beforeCount) {
+            this._consecutivePollMs = this._pollMs;
+            this._idleRounds = 0;
+        } else {
+            this._idleRounds++;
+            if (this._idleRounds > 10) {
+                this._consecutivePollMs = 5000; // 10 idle polls -> 5s
+            }
+            if (this._idleRounds > 60) {
+                this._consecutivePollMs = 10000; // 60 idle polls -> 10s
+            }
+        }
+        
+        this._scheduleNext();
+    }
+
+    /** Report success (resets circuit breaker). */
+    _reportSuccess() {
+        this._circuitFailures = 0;
+    }
+
+    /** Report failure (counts toward circuit breaker). */
+    _reportFailure() {
+        this._circuitFailures++;
     }
 
     /** Stop polling. */
     stop() {
-        if (this._timer) { clearInterval(this._timer); this._timer = null; }
+        this._stopped = true;
+        if (this._timer) { clearTimeout(this._timer); this._timer = null; }
         if (this._listTimer) { clearInterval(this._listTimer); this._listTimer = null; }
         if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
         // Cleanup caches
+        this._persist();
         this._tasks.clear();
         this._notifiedKeys.clear();
         this._sentCards.clear();
@@ -402,82 +469,107 @@ TaskManager.prototype._updateProgressCard = async function(task) {
     if (!task.chatId) return;
     try {
         var token = await this._getToken();
-        if (!token) return;
+        if (!token) { this._reportFailure(); return; }
+        this._reportSuccess();
         var apiBase = this._resolveApiBase();
         var taskName = task.name || 'Task';
         var pct = Math.min(100, Math.max(0, task.progress || 0));
-        var elapsed = formatDuration(task.elapsedMs);
-        var icon = getTypeIcon(task.type);
-        var cardText = '';
-        if (task.status === 'running') {
-            cardText = '**' + icon + ' ' + taskName + '**\n' + '\u2588'.repeat(Math.round(pct/10)) + '\u2591'.repeat(Math.round((100-pct)/10)) + ' **' + pct + '%**\n\u23f1\ufe0f ' + elapsed;
-        } else if (task.status === 'success') {
-            cardText = '\u2705 **' + taskName + '**\n' + '\u2588'.repeat(10) + ' **100%**\n\u23f1\ufe0f ' + elapsed;
-        } else {
-            cardText = '\u26a0\ufe0f **' + taskName + '** - ' + (task.error || 'error') + '\n\u23f1\ufe0f ' + elapsed;
+        var cardJson = null;
+
+        // Use standalone-card-builder for rich cards, fallback to inline markdown
+        if (cardBuilder) {
+            if (task.status === 'running') {
+                cardJson = cardBuilder.buildProgressCard(task);
+            } else if (task.status === 'success') {
+                cardJson = cardBuilder.buildCompletionCard(task);
+            } else {
+                cardJson = cardBuilder.buildErrorCard(task);
+            }
         }
+
+        if (!cardJson) {
+            // Fallback: inline markdown card
+            var elapsed = formatDuration(task.elapsedMs);
+            var icon = getTypeIcon(task.type);
+            var cardText = '';
+            var template = 'blue';
+            if (task.status === 'running') {
+                cardText = '**' + icon + ' ' + taskName + '**\n' + createProgressBar(pct) + ' **' + pct + '%**\n\u23f1\ufe0f ' + elapsed;
+            } else if (task.status === 'success') {
+                cardText = '\u2705 **' + taskName + '**\n' + createProgressBar(100) + ' **100%**\n\u23f1\ufe0f ' + elapsed;
+                template = 'green';
+            } else {
+                cardText = '\u26a0\ufe0f **' + taskName + '** - ' + (task.error || 'error') + '\n\u23f1\ufe0f ' + elapsed;
+                template = 'red';
+            }
+            cardJson = {
+                config: { wide_screen_mode: true },
+                header: { title: { tag: 'plain_text', content: (task.status === 'running' ? '\ud83d\udfe2' : task.status === 'success' ? '\u2705' : '\u26a0\ufe0f') + ' ' + taskName }, template: template },
+                elements: [{ tag: 'markdown', content: cardText, text_size: 'notation' }]
+            };
+        }
+
+        var title = (task.status === 'running' ? '\\ud83d\\udfe2' : task.status === 'success' ? '\\u2705' : '\\u26a0\\ufe0f') + ' ' + taskName;
         var template = task.status === 'error' || task.status === 'stalled' ? 'red' : task.status === 'success' ? 'green' : 'blue';
-        var emoji = task.status === 'running' ? '\ud83d\udfe2' : task.status === 'success' ? '\u2705' : '\u26a0\ufe0f';
-        var title = emoji + ' ' + taskName;
-        var sentEntry = this._sentCards.get(task.taskId);
-        var cardKitCardId = task._cardKitCardId || null;
-        
-        // === STRONG DEDUP: if card already exists, never create another ===
-        if (sentEntry || task.__progressCardId) {
-            var msgId = (sentEntry ? sentEntry.messageId : null) || task.__progressCardId;
-            if (cardKitCardId) {
-                // Try to update existing card via CardKit
-                try {
-                    var fullCard = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: cardText } }] };
-                    await fetch(apiBase + '/cardkit/v1/cards/' + cardKitCardId + '/batch_update', {
-                        method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
-                        body: JSON.stringify({ card: { type: 'card_json', data: JSON.stringify(fullCard) }, sequence: Date.now() })
-                    });
-                } catch (_) {}
-            }
-            // Always return — only ONE card per task, no matter what
-            return;
-        }
-        
-        // === CREATE path (only runs once per task) ===
-        try {
-            // First try: CardKit API (supports real-time updates)
-            var fullCard = { config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: cardText } }] };
-            var body = JSON.stringify({ type: 'card_json', data: JSON.stringify(fullCard) });
-            var resp = await fetch(apiBase + '/cardkit/v1/cards', {
-                method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: body
-            });
-            var j = await resp.json();
-            if (j.code === 0 && j.data?.card_id) {
-                cardKitCardId = j.data.card_id;
-                var msgResp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
-                    method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
-                    body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: cardKitCardId } }) })
+
+        // Check existing card
+        var existingCardId = null;
+        var sent = this._sentCards.get(task.taskId);
+        if (sent) existingCardId = sent.messageId;
+        else if (task.__progressCardId) existingCardId = task.__progressCardId;
+        var cardKitCardId = task._cardKitCardId;
+
+        if (existingCardId && cardKitCardId) {
+            // UPDATE existing CardKit card
+            try {
+                await fetch(apiBase + '/cardkit/v1/cards/' + cardKitCardId + '/batch_update', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ card: { type: 'card_json', data: JSON.stringify(cardJson) }, sequence: Date.now() })
                 });
-                var mj = await msgResp.json();
-                if (mj.code === 0 && mj.data?.message_id) {
-                    this._sentCards.set(task.taskId, { messageId: mj.data.message_id });
-                    try { var fp = path.join(this._taskDir, task.taskId + '.json'); var d = JSON.parse(fs.readFileSync(fp, 'utf8')); d.__progressCardId = mj.data.message_id; d._cardKitCardId = cardKitCardId; fs.writeFileSync(fp, JSON.stringify(d, null, 2)); } catch (_) {}
-                    return;
+                return;
+            } catch (e) {
+                console.log('[TM] update err:', String(e).slice(0, 100));
+            }
+        }
+        if (!existingCardId) {
+            // CREATE CardKit card + send as IM message
+            try {
+                var createBody = JSON.stringify({ type: 'card_json', data: JSON.stringify(cardJson) });
+                var resp = await fetch(apiBase + '/cardkit/v1/cards', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
+                    body: createBody
+                });
+                var result = await resp.json();
+                if (result.code === 0 && result.data?.card_id) {
+                    cardKitCardId = result.data.card_id;
+                    var msgResp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
+                        body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: JSON.stringify({ type: 'card', data: { card_id: cardKitCardId } }) })
+                    });
+                    var msgResult = await msgResp.json();
+                    if (msgResult.code === 0 && msgResult.data?.message_id) {
+                        var mid = msgResult.data.message_id;
+                        this._sentCards.set(task.taskId, { messageId: mid });
+                        try { var fp = path.join(this._taskDir, task.taskId + '.json'); var d = JSON.parse(fs.readFileSync(fp, 'utf8')); d.__progressCardId = mid; d._cardKitCardId = cardKitCardId; fs.writeFileSync(fp, JSON.stringify(d, null, 2)); } catch (_) {}
+                        // Update with header
+                        try { await fetch(apiBase + '/cardkit/v1/cards/' + cardKitCardId + '/batch_update', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ card: { type: 'card_json', data: JSON.stringify({ config: { wide_screen_mode: true }, header: { title: { tag: 'plain_text', content: title }, template: template } }) }, sequence: Date.now() + 1 }) }); } catch (_) {}
+                    } else {
+                        console.log('[TM] IM send fail:', msgResult.code, msgResult.msg);
+                    }
+                } else {
+                    console.log('[TM] CardKit create fail:', result.code, result.msg);
                 }
+            } catch (e) {
+                console.log('[TM] create fetch error:', String(e).slice(0, 150));
             }
-            // Fallback: inline card via IM API (static, no updates)
-            var fbResp = await fetch(apiBase + '/im/v1/messages?receive_id_type=chat_id', {
-                method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({ receive_id: task.chatId, msg_type: 'interactive', content: JSON.stringify(fullCard) })
-            });
-            var fj = await fbResp.json();
-            if (fj.code === 0 && fj.data?.message_id) {
-                this._sentCards.set(task.taskId, { messageId: fj.data.message_id });
-                try { var fp = path.join(this._taskDir, task.taskId + '.json'); var d = JSON.parse(fs.readFileSync(fp, 'utf8')); d.__progressCardId = fj.data.message_id; fs.writeFileSync(fp, JSON.stringify(d, null, 2)); } catch (_) {}
-            }
-        } catch (e) { console.log('[TM] create err:', String(e)); }
-    } catch (e) { console.log('[TM] err:', String(e)); }
+        }
+    } catch (e) {
+        console.log('[TM] err:', String(e));
+    }
 };
-
-
-
-
 
 
 
@@ -534,6 +626,53 @@ TaskManager.prototype._markNotified = function(key) {
         }
     }
 };
+
+
+
+    /** Persist active tasks to disk (survive gateway restart). */
+TaskManager.prototype._persist = function() {
+        try {
+            var persistDir = require('path').join(require('os').homedir(), '.openclaw', 'task-persistence');
+            var fs = require('fs');
+            fs.mkdirSync(persistDir, { recursive: true });
+            var tasks = [];
+            this._tasks.forEach(function(t) {
+                if (t.status === 'running' || !t.status) tasks.push(t);
+            });
+            var fp = require('path').join(persistDir, 'tasks.json');
+            fs.writeFileSync(fp, JSON.stringify({ savedAt: Date.now(), tasks: tasks }, null, 2));
+        } catch (_) {}
+    }
+
+    /** Restore persisted tasks on startup. */
+TaskManager.prototype._restorePersisted = function() {
+        try {
+            var persistDir = require('path').join(require('os').homedir(), '.openclaw', 'task-persistence');
+            var fs = require('fs');
+            var fp = require('path').join(persistDir, 'tasks.json');
+            if (!fs.existsSync(fp)) return;
+            var raw = fs.readFileSync(fp, 'utf8');
+            var data = JSON.parse(raw);
+            if (!data.tasks || !Array.isArray(data.tasks)) return;
+            var restored = 0;
+            data.tasks.forEach(function(t) {
+                if (t.taskId && !this._tasks.has(t.taskId)) {
+                    t.status = 'running';
+                    this._tasks.set(t.taskId, t);
+                    restored++;
+                    // Recreate task file
+                    try {
+                        var taskDir = '/tmp/openclaw-tasks';
+                        fs.mkdirSync(taskDir, { recursive: true });
+                        fs.writeFileSync(require('path').join(taskDir, t.taskId + '.json'), JSON.stringify(t, null, 2));
+                    } catch (_) {}
+                }
+            }.bind(this));
+            if (restored > 0) console.log('[TaskManager] restored ' + restored + ' persisted tasks');
+            // Clean up persistence file
+            try { fs.unlinkSync(fp); } catch (_) {}
+        } catch (_) {}
+    }
 
 exports.TaskManager = TaskManager;
 
